@@ -1,0 +1,13 @@
+# USD is a build artifact regenerated from assets/r1/R1.urdf (see assets/r1/README.md).
+# Keeping it out of git means the URDF stays the single source of truth.
+assets/r1/usd/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store
