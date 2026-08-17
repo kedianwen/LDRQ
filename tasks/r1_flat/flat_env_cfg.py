@@ -21,10 +21,15 @@ from that template, per the Week02 plan:
   ``bad_orientation``) rather than torso-contact-based like H1, since R1's
   link names differ from H1's and the plan asks for "base height too low or
   tilt too large" specifically.
-- Rewards are the generic template defaults with R1's foot link name
-  (``*_ankle_roll_link``, see assets/r1/r1.py) swapped in. Real reward
-  shaping is Week03's job (FR-T3) -- this week's config just needs to not
-  crash when stepped.
+- Rewards (Week03, FR-T3): tracking terms + physical-plausibility penalties
+  (tilt, torque, joint limits, foot slide) + upper-body joint_deviation
+  penalties (R1 has 14 non-leg DOF with no task of their own yet -- without
+  a "stay near default" penalty the policy can exploit arm-flailing for
+  balance, which is free in sim but doesn't transfer and fights Week0X's
+  future arm-task training). See RewardsCfg docstring for the full rationale.
+- Commands are narrowed for first training: lin_vel_x in [0, 0.5], lin_vel_y
+  and ang_vel_z pinned to 0 -- straight-line walking only. Widen once this
+  is learned (plan explicitly time-boxes this: "只求学起来，不求达标").
 """
 
 import math
@@ -47,6 +52,8 @@ from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+
+from tasks.r1_flat.mdp import feet_air_time_excess_l1, feet_swing_touchdown
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "assets" / "r1"))
 from r1 import R1_CFG  # noqa: E402
@@ -87,19 +94,27 @@ class R1SceneCfg(InteractiveSceneCfg):
 
 @configclass
 class CommandsCfg:
-    """Velocity command specification. Ranges are the generic template defaults --
-    Week03 narrows these for first training (plan: start with lin_vel_x in [0, 0.5])."""
+    """Velocity command specification.
+
+    Week03 first-training range: straight-line walking only (lin_vel_x in
+    [0, 0.5], lin_vel_y and ang_vel_z pinned to 0). heading_command is off
+    because with heading on, the commanded ang_vel_z is computed from heading
+    error and clamped into ranges.ang_vel_z at runtime -- leaving that range
+    at (0, 0) would silently fight the heading controller instead of just
+    not commanding turns. Widen these ranges (and re-enable heading) once
+    straight-line walking is learned, per the plan's own curriculum note.
+    """
 
     base_velocity = mdp.UniformVelocityCommandCfg(
         asset_name="robot",
         resampling_time_range=(10.0, 10.0),
         rel_standing_envs=0.02,
         rel_heading_envs=1.0,
-        heading_command=True,
+        heading_command=False,
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_x=(0.0, 0.5), lin_vel_y=(0.0, 0.0), ang_vel_z=(0.0, 0.0), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -188,30 +203,203 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Generic velocity-tracking rewards with R1's foot link name filled in.
-    Placeholder for Week03 (FR-T3) -- just needs to be valid, not tuned."""
+    """Week03 reward set (FR-T3): "tracking is positive, everything else is a
+    penalty regularizer", per the plan.
 
+    Revision history:
+    - First training (run `2026-08-14_14-22-09_first_train`): literature-standard
+      H1-template weights. Result: reward rose -5.2 -> 9.75 and R1 stopped
+      falling, but `scripts/play_r1.py` showed a degenerate gait -- legs
+      splayed wide, feet dragging/skating instead of stepping. tensorboard
+      showed why: `Episode_Reward/feet_air_time` stayed ~0 for the *entire*
+      run (never a live gradient) while `joint_deviation_hip` (hip_roll+yaw
+      combined) settled into a bad value by iteration ~300-450 and never
+      recovered -- the wide-stance drag was a cheaper local optimum (lower
+      torque/accel/action-rate) than real stepping, and nothing was strong
+      enough to outweigh that. Full diagnosis:
+      ~/kdw/experiment_record/Week03_首训_宽步态与奖励回落问题.md
+    - This revision (`reward_fix`): raised feet_air_time and feet_slide, split
+      hip deviation so hip_roll (the "splay" DOF) is penalized much harder
+      than hip_yaw (which doesn't cause splay), and added base_height_l2 to
+      anchor posture near Week02's verified standing height instead of letting
+      the policy crouch/widen further for cheap stability. Deliberately did
+      NOT raise dof_torques_l2/dof_acc_l2/action_rate_l2 -- those already
+      favor the low-effort drag solution, raising them would fight the fix.
+    - This revision (`reward_fix_symmetry`, Option A, v1 -- FAILED): reward_fix
+      fixed the wide-drag gait but exposed a second, subtler exploit -- one
+      leg walks normally while the other stays mostly planted and just taps
+      up/down briefly, since `feet_air_time_positive_biped` only requires
+      momentary single-foot-support and can't distinguish a real swing phase
+      from a tap. Confirmed structural (not undertraining) via an unmodified
+      reward_fix control run to 1500 iterations, where the relevant metrics
+      plateaued by ~iteration 800 with the asymmetry still visible on replay.
+      Added a penalty on left/right *instantaneous* air-time-duty-fraction
+      difference (`current_air_time`/`current_contact_time`-based). Trained
+      and visually verified: FAILED -- this formula penalizes *any*
+      single-stance instant almost as hard as a real asymmetric tap (the
+      swinging foot's instantaneous duty is always ~1, the planted foot's
+      ~0), so it fought feet_air_time_positive_biped's own incentive and the
+      policy learned to avoid single-stance entirely (both feet moving in a
+      synced hop/shuffle instead of alternating steps). Diagnosis:
+      ~/kdw/experiment_record/Week03_reward_fix_symmetry_方案A失败复盘与v2方案.md
+    - This revision (`reward_fix_symmetry_v2` -- ALSO FAILED): fixed v1's
+      formula bug by comparing `last_air_time` (most recently *completed*
+      swing) instead of the instantaneous duty fraction. Looked like a
+      success on tensorboard, but `scripts/diagnose_gait.py` (written after
+      the user reported the gait still looked wrong) measured the truth:
+      left foot airborne 5.6% of the time, right foot 94.9% -- R1 was
+      hopping along on its left leg with the right leg held up. The control
+      run with no symmetry penalty at all measured 6.6%/94.9%, i.e. all
+      three symmetry rounds had been attacking a symptom.
+    - This revision (`touchdown_gate`): fixes the actual root cause.
+      `feet_air_time_positive_biped` is *maximized* by standing on one leg
+      (permanent single-stance keeps both feet's in_mode_time growing, so
+      min(...) sits clamped at threshold forever -- never stepping is that
+      term's global optimum, and it had weight 1.0 since reward_fix).
+      Replaced it with `feet_swing_touchdown` (tasks/r1_flat/mdp.py), which
+      settles credit only when a foot actually lands, and dropped the
+      useless symmetry term. Added `feet_air_time_excess` to penalize a leg
+      held up past 0.6s every frame it stays up. Diagnosis + the gait-phase
+      design held in reserve if this isn't enough:
+      ~/kdw/experiment_record/Week03_单腿支撑漏洞根因与步态相位方案.md
+
+    -- task (positive) --
+    track_lin_vel_xy_exp / track_ang_vel_z_exp: command tracking, exp kernel.
+    alive: small constant per-step reward. Without it, the only signal near a
+        fall is the (large, sparse) termination penalty -- alive gives a dense
+        gradient against "learn to fall over slowly" degenerate solutions.
+    feet_swing_touchdown: rewards each *completed* swing at the moment the
+        foot lands (replaces feet_air_time_positive_biped, which paid every
+        frame and was therefore maximized by never landing at all). Weight
+        10.0 looks large next to the others but the signal is sparse -- it
+        pays on ~2 frames per gait cycle instead of all 40, so its average
+        per-step contribution lands around 0.15 for a healthy gait vs
+        tracking's ~0.9. Do NOT compare this term's tensorboard values
+        against the old feet_air_time's: different function, different
+        units, and the old one read *higher* the worse the gait got.
+
+    -- physical plausibility (penalty, task-agnostic) --
+    lin_vel_z_l2 / ang_vel_xy_l2 / flat_orientation_l2: vertical bounce, tilt
+        rate, and tilt angle -- flat_orientation_l2 penalizes the angle
+        itself; ang_vel_xy_l2 only penalizes its rate, so the two are
+        complementary, not redundant.
+    base_height_l2: new (reward_fix) -- anchors pelvis height near 0.72m (the
+        Week02-verified standing height) so the policy can't trade a lower/
+        wider crouch for cheap stability instead of learning to step.
+    dof_torques_l2 / dof_acc_l2 / action_rate_l2: energy + smoothness, keeps
+        the policy off high-frequency torque exploits that don't transfer.
+        Deliberately unchanged in reward_fix -- see revision history above.
+    dof_pos_limits: penalizes legs running into soft joint limits (the actual
+        moving joints during gait; arms/waist are handled by joint_deviation
+        below instead, since they shouldn't be moving much at all).
+    feet_slide: penalizes foot velocity while in contact (skating instead of
+        a clean plant/lift). weight -0.25 -> -1.0 (reward_fix): the dragging
+        gait's feet_slide penalty was consistently small (~-0.03 to -0.06),
+        too cheap relative to what dragging saved elsewhere.
+    feet_air_time_excess: penalizes a foot staying airborne past 0.6s, every
+        frame it stays up. Inert for normal swings (~0.3s); its whole job is
+        to make "hold a leg in the air" actively expensive rather than
+        merely unrewarded. Fires continuously, so unlike the abandoned
+        symmetry terms it doesn't depend on a landing that never comes.
+
+    -- upper-body regularization (penalty, R1-specific) --
+    joint_deviation_arms / joint_deviation_waist: R1 has 14 non-leg DOF with
+        no task of their own this week. Without a "stay near default" pull,
+        the policy can use arm/waist flailing as a free balance aid in sim --
+        doesn't transfer to a real robot and fights a future arm-task's prior.
+    joint_deviation_hip_roll / joint_deviation_hip_yaw: split apart in
+        reward_fix (was one combined joint_deviation_hip term at -0.1). Wide
+        stance is specifically a hip_roll (abduction) problem, not hip_yaw --
+        combining them let hip_roll deviate as long as the *sum* stayed
+        moderate. hip_roll now -0.4; hip_yaw stays -0.1 (still relevant since
+        this week's commands are straight-line-only, no turning).
+
+    termination_penalty: large one-time penalty on a non-timeout termination
+        (falling), separate from and much larger than the per-step alive
+        reward -- makes "don't fall" dominate the return even though alive
+        accumulates every step.
+    """
+
+    # -- task --
     track_lin_vel_xy_exp = RewTerm(
         func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
-    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
-    dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
-    feet_air_time = RewTerm(
-        func=mdp.feet_air_time_positive_biped,
-        weight=0.25,
+    alive = RewTerm(func=mdp.is_alive, weight=0.15)
+    feet_swing_touchdown = RewTerm(
+        func=feet_swing_touchdown,
+        weight=10.0,
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
-            "threshold": 0.4,
+            "min_swing_time": 0.15,
+            "threshold": 0.45,
         },
     )
+
+    # -- physical plausibility --
+    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-1.0)
+    base_height_l2 = RewTerm(func=mdp.base_height_l2, weight=-1.0, params={"target_height": 0.72})
+    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
+    dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    dof_pos_limits = RewTerm(
+        func=mdp.joint_pos_limits,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", joint_names=[".*_hip_.*_joint", ".*_knee_joint", ".*_ankle_.*_joint"]
+            )
+        },
+    )
+    feet_slide = RewTerm(
+        func=mdp.feet_slide,
+        weight=-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_ankle_roll_link"),
+        },
+    )
+    feet_air_time_excess = RewTerm(
+        func=feet_air_time_excess_l1,
+        weight=-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+            "max_air_time": 0.6,
+        },
+    )
+
+    # -- upper-body regularization --
+    joint_deviation_arms = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.1,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", joint_names=[".*_shoulder_.*_joint", ".*_elbow_joint", ".*_wrist_roll_joint"]
+            )
+        },
+    )
+    joint_deviation_waist = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.1,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=["waist_yaw_joint", "waist_roll_joint"])},
+    )
+    joint_deviation_hip_roll = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.4,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint"])},
+    )
+    joint_deviation_hip_yaw = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-0.1,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_yaw_joint"])},
+    )
+
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
 
 
 @configclass

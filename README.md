@@ -17,6 +17,8 @@ reports. This is the practical counterpart to the
   See `scripts/README.md`.
 - `docs/` — dated verification reports and screenshots produced by the scripts
   above (Week01/Week02 exit-criteria evidence). See `docs/README.md`.
+- `experiments/` — git-tracked training-run records (config + final metrics)
+  for comparing runs across ablations. See `experiments/README.md`.
 
 ## Environment
 

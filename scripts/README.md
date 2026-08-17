@@ -13,6 +13,10 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
 | `convert_r1_urdf.py` | Converts `assets/r1/R1.urdf` → `assets/r1/usd/R1.usd` via Isaac Lab's `UrdfConverter`. Run once, or whenever the URDF changes. | `assets/r1/usd/` (gitignored build artifact) |
 | `inspect_r1.py` | Spawns R1 from `R1_CFG`, holds the default pose under PD for `--settle-steps` (default 5500 ≈ 11s at dt=0.002), then reports per-joint limits/drive gains and a mass sanity check. Also saves a standing screenshot. `--trace-every N` prints height/roll/pitch periodically (0 to disable) — this is what diagnosed the Week02 standing-collapse issue below. Covers both Week01's asset-verification deliverable and Week02's ≥10s standing check. | `docs/joint_check.md`, `docs/r1_standing.png` |
 | `random_agent_r1.py` | Our equivalent of Isaac Lab's own `scripts/environments/random_agent.py` — random actions against `Isaac-Velocity-Flat-R1-v0` for `--steps` steps, to confirm the task registers and steps without crashing. We can't use the official script directly: it only imports `isaaclab_tasks`, so it has no way to know about `tasks/r1_flat` living outside Isaac Lab. Week02's task-skeleton deliverable. | stdout only |
+| `train_r1.py` | Our equivalent of Isaac Lab's own `scripts/reinforcement_learning/rsl_rl/train.py` — same reason we can't use the official script directly (it only imports `isaaclab_tasks`). Trains `Isaac-Velocity-Flat-R1-v0` with rsl_rl PPO, asymmetric AC (auto-detected from the env's `critic` observation group — see `tasks/r1_flat/agents/rsl_rl_ppo_cfg.py`). Week03's first-training deliverable (FR-T4). Supports checkpoint-resume (`--resume --load_run <run_id> --checkpoint <name>`) to pause training, inspect the gait with `play_r1.py`, then continue toward the same target — see the module docstring for the exact workflow and the gotcha below. | `logs/rsl_rl/r1_flat/<run_id>/` (gitignored — checkpoints + tensorboard events) |
+| `play_r1.py` | Our equivalent of Isaac Lab's own `scripts/reinforcement_learning/rsl_rl/play.py` (same external-task-package reason). Loads a checkpoint and steps `Isaac-Velocity-Flat-R1-Play-v0` with it for visual/recorded verification. Headless has no GUI, so pass `--video` or it spins forever. Week03 step 4 (deferred as of the first training run — see `experiments/`). | `logs/rsl_rl/r1_flat/<run_id>/videos/play/` when `--video` is passed; also exports `policy.pt`/`policy.onnx` next to the checkpoint |
+| `diagnose_gait.py` | Rolls out a checkpoint (no rendering) and measures **per-foot** gait statistics: swing count, mean swing duration, **air-time fraction**, plus each foot's dominant stepping frequency and the left/right phase offset. Written after three reward-shaping rounds were misjudged from tensorboard values and sampled video frames — air-time fraction (~0.4-0.5 per foot for a real walk) is the number that actually distinguishes walking from a one-legged hop. Use this as the pass/fail check after any gait-related training run. | stdout + `logs/rsl_rl/r1_flat/<run_id>/gait_diagnosis.txt` |
+| `archive_run.py [run_id]` | Copies a training run's config + final tensorboard metrics into `experiments/` for ablation comparisons across weeks. Doesn't need Isaac Sim — run with plain `python`, not `isaaclab.sh`. See `experiments/README.md`. | `experiments/<run_id>/`, `experiments/runs.md` |
 | `throughput_sweep.sh` | Sweeps `num_envs` on the official `Isaac-Velocity-Flat-H1-v0` task from 64 up to 16384, recording steady-state fps and peak GPU memory per level. This is Week01's RK-7 throughput baseline — run *before* touching the R1 task, not on it. | `docs/throughput_sweep.md` |
 | `throughput_sweep_extend.sh <N> [<N> ...]` | Continues the sweep at specific `num_envs` levels without re-running the ones already done — used to push up to the actual OOM ceiling. Appends to the same report. | `docs/throughput_sweep.md` |
 
@@ -32,6 +36,36 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   (contend for GPU, or crash one outright).
 - Camera pose (`camera.set_world_poses_from_view`) must be set **after**
   `sim.reset()`, not before — the camera isn't initialized until then.
+- **rsl_rl's `--max_iterations` means different things depending on `--resume`.**
+  On a fresh run it's the total iteration count. On a `--resume` run, upstream
+  rsl_rl/IsaacLab treat it as *additional* iterations on top of wherever the
+  loaded checkpoint left off (`OnPolicyRunner.learn` does
+  `tot_iter = current_learning_iteration + num_learning_iterations`) — passing
+  the same value you used originally silently trains way past your intended
+  stopping point. `train_r1.py` re-interprets `--max_iterations` as the
+  *absolute* target when `--resume` is set (computes the remaining count
+  itself) specifically to support pause-inspect-resume workflows; verified
+  with a small-scale test (trained to it=4, resumed with `--max_iterations 8`,
+  correctly ran 4 more iterations to reach it=7/absolute-target-8, not
+  it=4+8=12). Keep this in mind if you ever call `OnPolicyRunner` directly or
+  compare against upstream IsaacLab docs/scripts — their semantics differ from
+  ours on purpose.
+- **Isaac Sim's shutdown can eat a script's stdout.** `simulation_app.close()`
+  can kill the process before Python flushes a block-buffered stdout, so a
+  report printed at the end of a run vanishes when you redirect to a file
+  (it survives on a terminal, where stdout is line-buffered — so this looks
+  intermittent). `diagnose_gait.py` builds its report as one string and
+  writes it with `flush=True` plus a copy to disk. For other scripts, run
+  them with `PYTHONUNBUFFERED=1`.
+- **`feet_air_time_positive_biped` is maximized by standing on one leg.**
+  With one foot permanently planted and the other permanently in the air,
+  `single_stance` is always true and both feet's `in_mode_time` grow without
+  bound, so the term sits clamped at its `threshold` maximum forever — never
+  taking a step is its global optimum. Three Week03 reward rounds were spent
+  patching around this before it was found (`experiments/*/NOTES.md`). If you
+  use this term, pair it with a touchdown gate (`compute_first_contact`) or a
+  max-air-time penalty, and **never read a rising `feet_air_time` as evidence
+  of a better gait** — check `diagnose_gait.py`'s air-time fractions instead.
 - **High joint-PD stiffness needs a correspondingly fine physics timestep.**
   R1's standing gains (`assets/r1/r1.py`, hip/knee/ankle stiffness ~1200
   N·m/rad) fell over identically regardless of *any* gain combination at the
