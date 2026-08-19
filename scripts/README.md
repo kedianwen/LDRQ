@@ -16,6 +16,7 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
 | `train_r1.py` | Our equivalent of Isaac Lab's own `scripts/reinforcement_learning/rsl_rl/train.py` — same reason we can't use the official script directly (it only imports `isaaclab_tasks`). Trains `Isaac-Velocity-Flat-R1-v0` with rsl_rl PPO, asymmetric AC (auto-detected from the env's `critic` observation group — see `tasks/r1_flat/agents/rsl_rl_ppo_cfg.py`). Week03's first-training deliverable (FR-T4). Supports checkpoint-resume (`--resume --load_run <run_id> --checkpoint <name>`) to pause training, inspect the gait with `play_r1.py`, then continue toward the same target — see the module docstring for the exact workflow and the gotcha below. | `logs/rsl_rl/r1_flat/<run_id>/` (gitignored — checkpoints + tensorboard events) |
 | `play_r1.py` | Our equivalent of Isaac Lab's own `scripts/reinforcement_learning/rsl_rl/play.py` (same external-task-package reason). Loads a checkpoint and steps `Isaac-Velocity-Flat-R1-Play-v0` with it for visual/recorded verification. Headless has no GUI, so pass `--video` or it spins forever. Week03 step 4 (deferred as of the first training run — see `experiments/`). | `logs/rsl_rl/r1_flat/<run_id>/videos/play/` when `--video` is passed; also exports `policy.pt`/`policy.onnx` next to the checkpoint |
 | `diagnose_gait.py` | Rolls out a checkpoint (no rendering) and measures **per-foot** gait statistics: swing count, mean swing duration, **air-time fraction**, plus each foot's dominant stepping frequency and the left/right phase offset. Written after three reward-shaping rounds were misjudged from tensorboard values and sampled video frames — air-time fraction (~0.4-0.5 per foot for a real walk) is the number that actually distinguishes walking from a one-legged hop. Use this as the pass/fail check after any gait-related training run. | stdout + `logs/rsl_rl/r1_flat/<run_id>/gait_diagnosis.txt` |
+| `eval_baseline.py` | Rolls out a checkpoint at a grid of *fixed* commanded forward speeds and reports per speed: linear-velocity tracking error (**the PG-1 acceptance number**), falls, energy, action smoothness. Pins commands by collapsing the command term's ranges to a point value rather than overwriting `vel_command_b` each step, so the term's own resampling can't fight it. `--friction` / `--push_vel` turn it into a stress test, which is how the with-DR vs without-DR comparison is produced. Complementary to `diagnose_gait.py`: this says whether the robot *goes the commanded speed*, that one says whether it *walks* while doing so. | stdout + `logs/rsl_rl/r1_flat/<run_id>/baseline[_tag].md` |
 | `archive_run.py [run_id]` | Copies a training run's config + final tensorboard metrics into `experiments/` for ablation comparisons across weeks. Doesn't need Isaac Sim — run with plain `python`, not `isaaclab.sh`. See `experiments/README.md`. | `experiments/<run_id>/`, `experiments/runs.md` |
 | `throughput_sweep.sh` | Sweeps `num_envs` on the official `Isaac-Velocity-Flat-H1-v0` task from 64 up to 16384, recording steady-state fps and peak GPU memory per level. This is Week01's RK-7 throughput baseline — run *before* touching the R1 task, not on it. | `docs/throughput_sweep.md` |
 | `throughput_sweep_extend.sh <N> [<N> ...]` | Continues the sweep at specific `num_envs` levels without re-running the ones already done — used to push up to the actual OOM ceiling. Appends to the same report. | `docs/throughput_sweep.md` |
@@ -77,3 +78,39 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   falling over in a way that's insensitive to gain changes, suspect the
   timestep before the controller. `tasks/r1_flat/flat_env_cfg.py` uses the
   same `dt=0.002` (with `decimation=10` to keep the ~50Hz control rate).
+- **Check the robot's own spec before inventing actuator numbers.** Week02 set
+  R1's leg effort limits to 150 N·m, chosen to pass a "hold the pose under pure
+  joint PD for 10s" standing test. `R1.urdf` declares 60 (hip/knee) and 50
+  (ankle), and Unitree's official RL config agrees exactly — so the sim robot
+  was 2.5-3x stronger than the hardware, and the Week04 policy spent 11.6% of
+  its time commanding ankle torques no real R1 could produce. Two lessons:
+  (1) the passive-standing criterion is wrong for an RL task — the policy
+  re-targets every joint at 50Hz and balances *actively*, so it never needs the
+  pose to be passively self-supporting; (2) **no in-sim metric can catch this.**
+  PG-1 passed, falls were zero, the gait diagnosis was clean. It took comparing
+  against an external reference. After the correction (100/2/60 legs, 40/2/50
+  ankles, per-group action scale `0.25*effort/stiffness`), tracking error,
+  robustness, energy and gait symmetry all improved *simultaneously*.
+- **R1's leg gains only stand up under an *implicit* actuator.** The corollary
+  of the entry above, found while adding Week04's control-delay randomization:
+  swapping the legs onto `DelayedPDActuatorCfg` (an *explicit* actuator —
+  PD computed in Python, applied as an effort) made R1 collapse in 1.5s, and it
+  collapsed identically with the delay set to zero, so the actuator model was
+  at fault rather than the lag. Explicit damping needs roughly `dt < 2J/d`, and
+  the ankles run `d=150` against an inertia of order 0.01 kg·m² (armature
+  included) — a limit near 1e-4 s against the 2e-3 s this env uses. The failure
+  order matched: roll broke first (-10.6° at t=0.5s) while pitch was still
+  1.3°, i.e. the ankles went before anything else. Control delay is modeled at
+  the **action** level instead (`DelayedJointPositionAction` in
+  `tasks/r1_flat/mdp.py`), which is both safe and the more faithful unit — a
+  policy-loop lag in 20ms control steps, not 2ms physics substeps.
+- **An observation term's function is called once before startup events run.**
+  `ObservationManager` invokes each term while preparing it, to discover its
+  output shape, and that happens *before* `load_managers` applies `mode="startup"`
+  events. So a term that caches an expensive lookup on first use will cache the
+  **pre-randomization** value and then return a constant forever. This bit the
+  critic's ground-friction observation in Week04: all envs read exactly 1.000
+  (the USD default) while the actual friction spanned 0.6-1.2. Fix is to drop
+  the cache once on the first `reset()`, which happens after startup. More
+  generally: after wiring up any domain randomization, **measure that it varies
+  across envs** before spending a training run on it.

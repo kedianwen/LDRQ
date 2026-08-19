@@ -39,6 +39,7 @@ from pathlib import Path
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
+from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -53,7 +54,13 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
-from tasks.r1_flat.mdp import feet_air_time_excess_l1, feet_swing_touchdown
+from tasks.r1_flat.mdp import (
+    DelayedJointPositionActionCfg,
+    body_material_friction,
+    command_range_curriculum,
+    feet_air_time_excess_l1,
+    feet_swing_touchdown,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "assets" / "r1"))
 from r1 import R1_CFG  # noqa: E402
@@ -92,17 +99,40 @@ class R1SceneCfg(InteractiveSceneCfg):
 ##
 
 
+# Week04 (FR-T4): frames of proprioception stacked into the actor's observation.
+# 5 frames at the 50Hz control rate = 100ms of history, enough to span most of a
+# 1.34Hz gait cycle's swing phase (the Week03 policy's measured step frequency).
+OBS_HISTORY_LENGTH = 5
+
+# Week04 command curriculum end points. Module-level so the curriculum term, the
+# CommandsCfg defaults and the PLAY variant can't drift apart.
+COMMAND_RANGES_INITIAL = {"lin_vel_x": (0.0, 0.5), "ang_vel_z": (0.0, 0.0)}
+COMMAND_RANGES_FINAL = {"lin_vel_x": (0.0, 1.0), "ang_vel_z": (-0.5, 0.5)}
+
+
 @configclass
 class CommandsCfg:
     """Velocity command specification.
 
-    Week03 first-training range: straight-line walking only (lin_vel_x in
+    Week03 first-training range was straight-line walking only (lin_vel_x in
     [0, 0.5], lin_vel_y and ang_vel_z pinned to 0). heading_command is off
     because with heading on, the commanded ang_vel_z is computed from heading
     error and clamped into ranges.ang_vel_z at runtime -- leaving that range
     at (0, 0) would silently fight the heading controller instead of just
-    not commanding turns. Widen these ranges (and re-enable heading) once
-    straight-line walking is learned, per the plan's own curriculum note.
+    not commanding turns.
+
+    Week04 must widen this: PG-1 is stated over 0.5-1.0 m/s, and measuring the
+    Week03 policy (scripts/eval_baseline.py) showed exactly the expected
+    shape -- 0.022 m/s tracking error at 0.5 m/s but 0.236 m/s at 1.0 m/s,
+    with zero falls. It isn't unstable up there, it simply never trained
+    there. Turning is enabled too: PG-1 doesn't ask for it, but Week06's real
+    deployment does, and adding it later means retraining.
+
+    The ranges here are the curriculum's *starting* values (Week03's, which
+    already work); CurriculumCfg.command_ranges ramps them to the final
+    lin_vel_x (0, 1.0) / ang_vel_z (-0.5, 0.5). lin_vel_y stays pinned at 0 --
+    humanoid lateral stepping is much harder than turning and is rarely
+    commanded on hardware, not worth the risk in an M1 gate week.
     """
 
     base_velocity = mdp.UniformVelocityCommandCfg(
@@ -114,16 +144,74 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.0, 0.5), lin_vel_y=(0.0, 0.0), ang_vel_z=(0.0, 0.0), heading=(-math.pi, math.pi)
+            lin_vel_x=COMMAND_RANGES_INITIAL["lin_vel_x"],
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=COMMAND_RANGES_INITIAL["ang_vel_z"],
+            heading=(-math.pi, math.pi),
         ),
     )
 
 
 @configclass
 class ActionsCfg:
-    """Action = scaled joint position offset from R1's default standing pose (assets/r1/r1.py)."""
+    """Action = scaled joint position offset from R1's default standing pose (assets/r1/r1.py).
 
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True)
+    Week04 (FR-T5) adds the fifth domain randomization item here rather than in
+    EventCfg: the setpoint reaching the joints lags 0-1 control steps (0-20ms),
+    resampled per episode. See DelayedJointPositionAction in tasks/r1_flat/mdp.py
+    for why this is not Isaac Lab's DelayedPDActuatorCfg -- short version, that
+    one is an explicit actuator and R1's leg gains fall over without PhysX's
+    implicit joint-drive solver (measured, not assumed).
+    """
+
+    joint_pos = DelayedJointPositionActionCfg(
+        asset_name="robot",
+        # 24 of R1's 26 joints -- the head is deliberately *not* actuated by the
+        # policy, matching Unitree's own R1 config (their MJCF has no head
+        # actuator either). It stays PD-held at its default angle by the "head"
+        # actuator group in assets/r1/r1.py.
+        #
+        # It used to be in here, via ".*", and with no reward term mentioning
+        # head_pitch/head_yaw the policy drove head_pitch to its *hard* limit
+        # (-0.628 rad = -36 deg, 100% of samples, std 0.001) and left it there:
+        # R1 walked staring at the sky. The fix is structural rather than a
+        # "stay near default" penalty because the head had already become
+        # load-bearing -- zeroing its action at inference cost 4-7x tracking
+        # error and produced falls at 1.0 m/s. A joint the policy cannot drive
+        # cannot be co-opted for balance in the first place. Full comparison of
+        # both candidate fixes:
+        # ~/kdw/experiment_record/Week04_头部仰天_根因与两方案对比.md
+        joint_names=[
+            ".*_hip_.*_joint",
+            ".*_knee_joint",
+            ".*_ankle_.*_joint",
+            "waist_.*_joint",
+            ".*_shoulder_.*_joint",
+            ".*_elbow_joint",
+            ".*_wrist_roll_joint",
+        ],
+        # Per-group scale, following Unitree's own R1 config, which derives it as
+        # 0.25 * effort_limit / stiffness -- i.e. a full-scale action asks for a
+        # quarter of the joint's torque budget. A single global 0.5 (what this
+        # used through Week04) is not scale-free: against the old stiffness of
+        # 1200 it meant a 0.05 rad action already commanded 60 N*m, so the
+        # controller effectively ran saturated. That is the direct cause of the
+        # measured ankle p99 pinned at the torque ceiling.
+        scale={
+            ".*_hip_.*_joint": 0.15,
+            ".*_knee_joint": 0.15,
+            ".*_ankle_.*_joint": 0.3125,
+            "waist_.*_joint": 0.15,
+            ".*_shoulder_pitch_joint": 0.375,
+            ".*_shoulder_roll_joint": 0.375,
+            ".*_shoulder_yaw_joint": 0.4125,
+            ".*_elbow_joint": 0.4125,
+            ".*_wrist_roll_joint": 0.4125,
+        },
+        use_default_offset=True,
+        min_delay=0,
+        max_delay=1,
+    )
 
 
 @configclass
@@ -133,7 +221,14 @@ class ObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
         """Pure proprioception: only what's actually measurable on the deployed R1.
-        No base linear velocity -- that's not observable without external tracking."""
+        No base linear velocity -- that's not observable without external tracking.
+
+        Week04 (FR-T4) stacks the last OBS_HISTORY_LENGTH frames of every term
+        here, which is what lets a pure-proprioception actor *infer* the things
+        it can't measure (base linear velocity, ground contact, actuator lag)
+        from how its own state evolved. That's this project's replacement for a
+        teacher-student distillation stage -- the critic keeps its privileged
+        observations, the actor gets memory instead."""
 
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, noise=Unoise(n_min=-0.05, n_max=0.05))
@@ -145,6 +240,13 @@ class ObservationsCfg:
         def __post_init__(self):
             self.enable_corruption = True
             self.concatenate_terms = True
+            # group-level setting: applies to every term above, 85 -> 425 dims.
+            # NOTE the buffer lives in the *env* (ObservationManager's
+            # CircularBuffer), not in the network, so Week05's exported ONNX
+            # takes a flat 425-dim input and the C++ node on the robot has to
+            # maintain this 5-frame queue itself.
+            self.history_length = OBS_HISTORY_LENGTH
+            self.flatten_history_dim = True
 
     @configclass
     class CriticCfg(ObsGroup):
@@ -162,13 +264,24 @@ class ObservationsCfg:
         base_incoming_wrench = ObsTerm(
             func=mdp.body_incoming_wrench, params={"asset_cfg": SceneEntityCfg("robot", body_names="pelvis_link")}
         )
-        # NOTE: a ground-friction observation is deliberately not here yet -- there's
-        # nothing meaningful to observe until Week04's friction-randomization DR
-        # event (FR-T5) actually makes it vary per env.
+        # Week04: friction now *does* vary per env (EventCfg.physics_material),
+        # so this became worth observing -- an unobservable friction is reward
+        # noise the value function would otherwise have to absorb.
+        # asset_cfg must be passed through params, not left to the function's
+        # default: only SceneEntityCfg objects inside params get resolved
+        # against the scene, so a default one would still hold body_ids=slice(None).
+        body_friction = ObsTerm(
+            func=body_material_friction,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names=".*_ankle_roll_link")},
+        )
 
         def __post_init__(self):
             self.enable_corruption = False
             self.concatenate_terms = True
+            # No history here on purpose: history exists so the actor can infer
+            # what it cannot measure, and the critic already measures it
+            # directly (base_lin_vel, wrench, friction). Stacking it would cost
+            # memory and bandwidth for nothing.
 
     policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
@@ -176,9 +289,66 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """Episodic reset only. Domain randomization (friction/mass/push/delay, FR-T5)
-    is Week04's job -- deliberately not added yet."""
+    """Resets plus Week04's domain randomization (FR-T5).
 
+    Five items, exactly the five the plan asks for and no more: friction,
+    mass, motor strength, control delay and external pushes. Four of them are
+    events; the fifth (control delay) is not expressible as an event at all
+    and lives in the action term -- see ActionsCfg above.
+
+    Note ``randomize_actuator_gains`` runs at ``startup``, not per reset. R1's
+    actuators are ``ImplicitActuatorCfg``, and Isaac Lab's own note on that
+    function says implicit actuators are written through CPU tensors, so it is
+    "recommended to use this function only during the initialization of the
+    environment". Per-reset randomization of 4096 envs through the CPU would
+    dominate the step time. Startup-only means each env keeps one fixed motor
+    strength for the whole run, which is the right model anyway: a real motor's
+    strength doesn't resample when the robot gets picked up.
+
+    Ranges are deliberately narrow-to-moderate. The Week04 plan's own risk note
+    is "DR 开太猛会导致学不动 -> 从窄区间起，逐步放宽" -- this is the starting
+    width, to be widened only after a run confirms the gait survives it.
+    """
+
+    # -- domain randomization (FR-T5) --
+    physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.6, 1.2),
+            "dynamic_friction_range": (0.6, 1.2),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
+    add_base_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "mass_distribution_params": (0.9, 1.1),
+            "operation": "scale",
+        },
+    )
+    actuator_gains = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+            "stiffness_distribution_params": (0.85, 1.15),
+            "damping_distribution_params": (0.85, 1.15),
+            "operation": "scale",
+        },
+    )
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
+        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
+    )
+
+    # -- resets --
     reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -343,7 +513,7 @@ class RewardsCfg:
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-1.0)
-    base_height_l2 = RewTerm(func=mdp.base_height_l2, weight=-1.0, params={"target_height": 0.72})
+    base_height_l2 = RewTerm(func=mdp.base_height_l2, weight=-1.0, params={"target_height": 0.731})
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
@@ -404,13 +574,38 @@ class RewardsCfg:
 
 @configclass
 class TerminationsCfg:
-    """"摔倒": base height too low, or tilted too far. Thresholds are a first
-    pass (default standing pelvis height is 0.72m, see assets/r1/r1.py) --
-    revisit once real standing/training data exists."""
+    """"摔倒": base height too low, or tilted too far. The height threshold
+    tracks the default standing pelvis height (0.731m as of the Week04 actuator
+    correction, see assets/r1/r1.py) at the same ~0.69 ratio the 0.5/0.72 pair
+    used, so "fallen" keeps meaning the same posture rather than drifting when
+    the nominal pose changes."""
 
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
-    base_height_low = DoneTerm(func=mdp.root_height_below_minimum, params={"minimum_height": 0.5})
+    base_height_low = DoneTerm(func=mdp.root_height_below_minimum, params={"minimum_height": 0.51})
     bad_orientation = DoneTerm(func=mdp.bad_orientation, params={"limit_angle": 0.7})
+
+
+@configclass
+class CurriculumCfg:
+    """Week04 command curriculum.
+
+    Week03 produced a policy that walks well at 0-0.5 m/s straight ahead.
+    Opening the full 0-1.0 m/s range plus turning from step 0 throws that head
+    start away; ramping in keeps it. ``end_step`` is in *control* steps --
+    rsl_rl runs 24 per iteration, so 24000 steps is iteration 1000, i.e. the
+    ranges are fully open for the last two thirds of a 3000-iteration run.
+    """
+
+    command_ranges = CurrTerm(
+        func=command_range_curriculum,
+        params={
+            "command_name": "base_velocity",
+            "initial_ranges": COMMAND_RANGES_INITIAL,
+            "final_ranges": COMMAND_RANGES_FINAL,
+            "start_step": 0,
+            "end_step": 24000,
+        },
+    )
 
 
 ##
@@ -429,18 +624,23 @@ class R1FlatEnvCfg(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
-        # decimation=10 at dt=0.002 keeps the same ~50Hz control rate as the
-        # H1 template's decimation=4 @ 0.005, but at 500Hz physics instead of
-        # 200Hz. Required at R1's standing-check gains (assets/r1/r1.py,
-        # hip/knee/ankle stiffness ~1200): 200Hz was numerically unstable
-        # for this stiffness regardless of gains, 500Hz holds a stable stand.
-        # See scripts/README.md.
-        self.decimation = 10
+        # 200Hz physics, 50Hz control -- the Isaac Lab locomotion default.
+        #
+        # This was dt=0.002 / decimation=10 (500Hz physics) through Week04, and
+        # that was never really about R1: it was forced by the Week02 leg
+        # stiffness of 1200 N*m/rad, at which PhysX's implicit drive solver
+        # diverged at coarser timesteps. Those gains have since been corrected
+        # to the hardware's own 100/40 (assets/r1/r1.py), which removes the
+        # constraint and gives back 2.5x of physics cost. Verified stable at
+        # these gains before adopting; revert to 0.002/10 if a future gain
+        # change reintroduces stiffness in that range.
+        self.decimation = 4
         self.episode_length_s = 20.0
-        self.sim.dt = 0.002
+        self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
         if self.scene.contact_forces is not None:
@@ -449,10 +649,28 @@ class R1FlatEnvCfg(ManagerBasedRLEnvCfg):
 
 @configclass
 class R1FlatEnvCfg_PLAY(R1FlatEnvCfg):
-    """Small/deterministic variant for interactive play/verification runs."""
+    """Small/deterministic variant for interactive play/verification runs.
+
+    Week04: domain randomization and the command curriculum are switched off
+    here so that play/evaluation runs at *nominal* conditions, with the full
+    command range available immediately. Otherwise every measurement would
+    carry a random friction/mass/gain draw, and scripts/eval_baseline.py could
+    only ever command the curriculum's step-0 range. Stress conditions are
+    applied explicitly instead, via that script's --friction / --push_vel.
+    """
 
     def __post_init__(self) -> None:
         super().__post_init__()
         self.scene.num_envs = 16
         self.scene.env_spacing = 2.5
         self.observations.policy.enable_corruption = False
+        # nominal conditions, not a random draw
+        self.events.physics_material = None
+        self.events.add_base_mass = None
+        self.events.actuator_gains = None
+        self.events.push_robot = None
+        self.actions.joint_pos.max_delay = 0
+        # full command range from the start, no ramp
+        self.curriculum.command_ranges = None
+        self.commands.base_velocity.ranges.lin_vel_x = COMMAND_RANGES_FINAL["lin_vel_x"]
+        self.commands.base_velocity.ranges.ang_vel_z = COMMAND_RANGES_FINAL["ang_vel_z"]

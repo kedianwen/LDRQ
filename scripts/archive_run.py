@@ -5,6 +5,8 @@ Reads whatever's been logged so far under logs/rsl_rl/r1_flat/<run_id>/
 (works on a still-running run, not just a finished one), and writes:
   - experiments/<run_id>/params/{env.yaml,agent.yaml}  (copied verbatim --
     the exact config, diff-able against another run)
+  - experiments/<run_id>/pip_freeze.txt                (dependency versions,
+    Week04's FR-T6 reproducibility requirement)
   - experiments/<run_id>/summary.md                    (final metrics pulled
     from that run's tensorboard event file)
   - a matching row appended (or updated) in experiments/runs.md
@@ -149,6 +151,14 @@ def main() -> None:
     (out_dir / "params").mkdir(parents=True, exist_ok=True)
     shutil.copy(params_dir / "env.yaml", out_dir / "params" / "env.yaml")
     shutil.copy(params_dir / "agent.yaml", out_dir / "params" / "agent.yaml")
+
+    # FR-T6: the configs pin what we set, this pins what we ran it against.
+    # Uses whichever interpreter is running this script, so archive from inside
+    # env_isaaclab or the snapshot describes the wrong environment.
+    freeze = subprocess.run(
+        [sys.executable, "-m", "pip", "freeze"], capture_output=True, text=True
+    )
+    (out_dir / "pip_freeze.txt").write_text(freeze.stdout or "(pip freeze failed)\n")
 
     last_it = reward_last.step if reward_last else "?"
     complete = f"{last_it}/{max_iterations}"

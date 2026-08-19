@@ -19,13 +19,27 @@ for R1 specifically yet.
 
 from isaaclab.utils import configclass
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg
+from isaaclab_rl.rsl_rl import (
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+    RslRlSymmetryCfg,
+)
+
+from tasks.r1_flat.symmetry import mirror_obs_actions
 
 
 @configclass
 class R1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
+    # Week04 (FR-T6): pinned explicitly rather than inherited from rsl_rl's
+    # default, so the reproduction command doesn't depend on an upstream default
+    # staying put.
+    seed = 42
     num_steps_per_env = 24
-    max_iterations = 1500
+    # Week04 trains longer than Week03's 1500: domain randomization makes the
+    # curves noisier and convergence slower, which the plan budgets for
+    # ("用更长训练步数换 sim2real 迁移能力").
+    max_iterations = 3000
     save_interval = 50
     experiment_name = "r1_flat"
     empirical_normalization = False
@@ -48,4 +62,15 @@ class R1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
+        # Week04 correction: R1's model is provably mirror-symmetric (all 17
+        # left/right link pairs in R1.urdf match to 0 in mass, inertia and centre
+        # of mass), yet the Week04 policy walked with markedly different air-time
+        # fractions per foot (0.416 vs 0.646). Nothing in the reward or the
+        # training loop had ever asked for symmetry. Augmenting each minibatch
+        # with its mirror image does (Mittal et al. 2024); see
+        # tasks/r1_flat/symmetry.py for the mirror map.
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            data_augmentation_func=mirror_obs_actions,
+        ),
     )

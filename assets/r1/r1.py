@@ -68,33 +68,45 @@ R1_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        # Shared nominal posture — keep consistent with the R1 model's home/keyframe
-        # pose (mjcf/R1_C++.xml) 
-        # Moderate-crouch, bent-arm pose.
-        # pelvis z = 0.72 puts the soles flat on the ground for this leg posture:
-        # URDF leg FK gives ankle_roll_link at -0.66675 m below pelvis, plus the
-        # 0.053245 m sole offset (robot.yaml contact_plane_offset_z) => 0.72.
-        pos=(0.0, 0.0, 0.72),
+        # Unitree's official HOME_KEYFRAME for this robot (unitree_rl_mjlab's
+        # r1_constants.py). Adopted together with their actuator gains below --
+        # the two go together: the previous pose was a deeper crouch
+        # (z=0.72, hip -0.26 / knee 0.52 / ankle -0.26) which needs noticeably
+        # more static holding torque, and that is exactly the budget the soft
+        # official gains no longer have.
+        #
+        # Mirror-symmetric by construction (only shoulder_roll differs left vs
+        # right, and it differs by sign) -- required by the symmetry
+        # augmentation in tasks/r1_flat/symmetry.py, which mirrors joint_pos
+        # *relative to this default*.
+        # NOTE the height is *ours*, not Unitree's 0.76. Their joint angles
+        # transfer directly (hip -0.1 + knee 0.3 + ankle -0.2 = 0, so the soles
+        # stay horizontal), but the pelvis height that puts those soles on the
+        # ground depends on foot collision geometry, which differs between their
+        # MJCF and this URDF. Measured here: leg FK puts ankle_roll_link 0.6778m
+        # below the pelvis, plus the 0.053245m sole offset (robot.yaml
+        # contact_plane_offset_z) => 0.731. Spawning at 0.76 left the feet
+        # floating 2.9cm and dropping on every reset.
+        pos=(0.0, 0.0, 0.731),
         joint_pos={
-            # Legs: moderate flat-foot crouch (hip + knee + ankle = 0 → soles flat).
-            ".*_hip_pitch_joint": -0.26,
-            ".*_knee_joint": 0.52,
-            ".*_ankle_pitch_joint": -0.26,
+            ".*_hip_pitch_joint": -0.1,
+            ".*_knee_joint": 0.3,
+            ".*_ankle_pitch_joint": -0.2,
             ".*_hip_roll_joint": 0.0,
             ".*_hip_yaw_joint": 0.0,
             ".*_ankle_roll_joint": 0.0,
             # Waist.
             "waist_yaw_joint": 0.0,
             "waist_roll_joint": 0.0,
-            # Arms: relaxed natural bend (slight forward + abduction + bent elbow)
-            # so the idle pose looks human; matches the TSID posture-task reference.
-            ".*_shoulder_pitch_joint": 0.15,
-            "left_shoulder_roll_joint": 0.10,
-            "right_shoulder_roll_joint": -0.10,
+            # Arms.
+            ".*_shoulder_pitch_joint": 0.35,
+            "left_shoulder_roll_joint": 0.18,
+            "right_shoulder_roll_joint": -0.18,
             ".*_shoulder_yaw_joint": 0.0,
-            ".*_elbow_joint": 0.35,
+            ".*_elbow_joint": 0.87,
             ".*_wrist_roll_joint": 0.0,
-            # head
+            # Head (not covered by Unitree's config -- their MJCF doesn't
+            # actuate it).
             "head_pitch_joint": 0.0,
             "head_yaw_joint": 0.0,
         },
@@ -102,92 +114,98 @@ R1_CFG = ArticulationCfg(
     ),
     soft_joint_pos_limit_factor=0.9,
     actuators={
-        # Modeled actuators.
+        # Actuator parameters follow the robot's own hardware spec and Unitree's
+        # official RL configuration, which agree with each other exactly:
+        #   - effort limits are what `R1.urdf` declares (<limit effort=...>):
+        #     60 N*m hip/knee/waist/shoulder, 50 N*m ankle, 33 N*m wrist-group;
+        #   - stiffness/damping/armature are unitree_rl_mjlab's
+        #     src/assets/robots/unitree_r1/r1_constants.py.
+        #
+        # These replaced a much stiffer, much stronger set carried over from
+        # Week02 (legs 1200/100, ankle 1200/150, all leg efforts 150 N*m). That
+        # was a mistake with a specific cause, worth recording because the
+        # reasoning looked sound at the time:
+        #
+        #   Week02's criterion was "hold the default pose under *pure joint PD*,
+        #   no controller, for >=10s", which needs the leg chain's passive
+        #   stiffness to beat the inverted pendulum's m*g*h ~= 190 N*m/rad.
+        #   That is the wrong criterion for an RL task: the policy re-targets
+        #   every joint at 50Hz and balances *actively*, so it never needs the
+        #   pose to be passively self-supporting. Unitree ships 100/40 on this
+        #   same robot precisely because the policy does the balancing.
+        #
+        # Everything downstream came from that one choice: stiffness 1200 made
+        # PhysX's implicit drive solver diverge at 1/60s (hence sim dt=0.002),
+        # and made explicit actuators unusable entirely (Week04's
+        # DelayedPDActuatorCfg smoke test collapsed in 1.5s). Both constraints
+        # relax at these gains -- explicit-PD damping stability wants roughly
+        # dt < 2J/d, which is ~0.01s here instead of ~1e-4s.
+        #
+        # The measured cost of the old values: the Week04 policy spent 11.6% of
+        # its time commanding ankle torques above the real R1's 50 N*m rating,
+        # with p99 pinned at the 150 N*m sim ceiling -- a gait no hardware could
+        # reproduce. See ~/kdw/experiment_record/Week04_执行器参数与硬件规格不符_根因与修正方案.md
         "legs": ImplicitActuatorCfg(
             joint_names_expr=[
                 ".*_hip_pitch_joint",
                 ".*_hip_roll_joint",
                 ".*_hip_yaw_joint",
                 ".*_knee_joint",
-                ".*_ankle_pitch_joint",
-                ".*_ankle_roll_joint",
             ],
-            effort_limit_sim={
-                ".*_hip_.*_joint": 150.0,
-                ".*_knee_joint": 150.0,
-                ".*_ankle_.*_joint": 150.0,
-            },
-            stiffness={
-                # Week02 standing check (no whole-body balance controller --
-                # pure joint-PD hold), full diagnosis after 10 real Isaac Sim
-                # iterations:
-                #
-                # 1) Ruled out a bad default pose: CoM sits only 2.6cm forward
-                #    of the ankle, well inside the foot's 13.5cm forward margin
-                #    (mesh bounds) -- not a static support-polygon violation.
-                # 2) GUI observation: R1 fell forward *rigidly* (no joint
-                #    buckling) -- a whole-body inverted-pendulum problem, not
-                #    per-joint compliance.
-                # 3) Quantitatively: modeling the robot as an inverted pendulum
-                #    (mass~28.8kg, CoM height~0.67m) gives a destabilizing
-                #    gravity "spring constant" of m*g*h ~= 190 N*m/rad. The leg
-                #    chain's effective stiffness at the CoM is hip/knee/ankle
-                #    combined *in series* like springs, dominated by the
-                #    softest joint -- every attempt with hip <=250 stayed below
-                #    the 190 threshold regardless of ankle stiffness, which is
-                #    why raising ankle alone (up to 30x) never helped.
-                # 4) Raising all three past the threshold (this stiffness) via
-                #    the *default* physics timestep (1/60s) STILL fell,
-                #    identically. Root cause: at ~1200 N*m/rad, 1/60s is too
-                #    coarse for PhysX's implicit joint-drive solver -- it's a
-                #    numerical instability, not a physical one. Fixed by the
-                #    sim dt, not the gains (see scripts/inspect_r1.py and
-                #    tasks/r1_flat/flat_env_cfg.py, both now dt=0.002).
-                #
-                # Both (3) and (4) were necessary; neither alone was sufficient.
-                ".*_hip_.*_joint": 1200.0,
-                ".*_knee_joint": 1200.0,
-                ".*_ankle_.*_joint": 1200.0,
-            },
-            damping={
-                ".*_hip_.*_joint": 100.0,
-                ".*_knee_joint": 100.0,
-                ".*_ankle_.*_joint": 150.0,
-            },
+            effort_limit=60.0,
+            effort_limit_sim=60.0,
+            stiffness=100.0,
+            damping=2.0,
+            armature=0.01,
+        ),
+        # Split out from "legs": the ankles are softer and weaker than the rest
+        # of the leg on the real robot (40/2 and 50 N*m), and lumping them in
+        # with the hips is what let the old config drive them at 3x their rating.
+        "ankles": ImplicitActuatorCfg(
+            joint_names_expr=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"],
+            effort_limit=50.0,
+            effort_limit_sim=50.0,
+            stiffness=40.0,
+            damping=2.0,
             armature=0.01,
         ),
         "waist": ImplicitActuatorCfg(
             joint_names_expr=["waist_yaw_joint", "waist_roll_joint"],
+            effort_limit=60.0,
             effort_limit_sim=60.0,
-            # Raised 200/5 -> 400/20 (Week02): the waist carries the whole
-            # upper body (torso+arms+head, waist_yaw_link alone is 6kg, the
-            # single heaviest body, mounted well above the pelvis) on what
-            # was low damping relative to that load. Untested lever after leg
-            # gains alone (up to 30x) didn't stop a standing collapse whose
-            # timing (~1.5s) barely changed across very different leg gains --
-            # suggesting the drift wasn't coming from the legs at all.
-            stiffness=400.0,
-            damping=20.0,
+            stiffness=100.0,
+            damping=2.0,
             armature=0.01,
         ),
         "arms": ImplicitActuatorCfg(
+            joint_names_expr=[".*_shoulder_pitch_joint", ".*_shoulder_roll_joint"],
+            effort_limit=60.0,
+            effort_limit_sim=60.0,
+            stiffness=40.0,
+            damping=2.0,
+            armature=0.01,
+        ),
+        "wrists": ImplicitActuatorCfg(
             joint_names_expr=[
-                ".*_shoulder_pitch_joint",
-                ".*_shoulder_roll_joint",
                 ".*_shoulder_yaw_joint",
                 ".*_elbow_joint",
                 ".*_wrist_roll_joint",
             ],
-            effort_limit_sim=40.0,
-            stiffness=80.0,
-            damping=15.0,
+            effort_limit=33.0,
+            effort_limit_sim=33.0,
+            stiffness=20.0,
+            damping=1.0,
             armature=0.01,
         ),
+        # Unitree's config has no head group (their MJCF doesn't actuate it), so
+        # this one is ours: the URDF rates these joints at 33 N*m, and they sit
+        # in the same size class as the wrist group, so they get its gains.
         "head": ImplicitActuatorCfg(
             joint_names_expr=["head_pitch_joint", "head_yaw_joint"],
+            effort_limit=33.0,
             effort_limit_sim=33.0,
-            stiffness=40.0,
-            damping=10.0,
+            stiffness=20.0,
+            damping=1.0,
             armature=0.01,
         ),
     },
