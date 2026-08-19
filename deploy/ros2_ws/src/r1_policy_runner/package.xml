@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>r1_policy_runner</name>
+  <version>0.1.0</version>
+  <description>
+    TensorRT execution of the R1 flat-ground locomotion policy behind a ROS 2
+    node: observation history assembly, engine build, PyTorch parity check, and
+    a self-driving mode for bench rehearsal without the robot.
+  </description>
+  <maintainer email="dianwenke@gmail.com">Kelvin</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <!-- TensorRT and the CUDA runtime are resolved by CMake from TENSORRT_ROOT /
+       CUDART_ROOT rather than declared here: on a Jetson they come from JetPack
+       and on the dev box from pip wheels, and neither is a rosdep key. -->
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

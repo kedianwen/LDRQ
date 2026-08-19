@@ -1,0 +1,592 @@
+<title>R1 推理链路</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Palette: instrumentation. Cool paper with a faint cyan bias, deep teal for
+   verified/measured things, burnt orange reserved exclusively for the defect.
+   --------------------------------------------------------------------------- */
+:root {
+  --ground:      #F1F4F3;
+  --surface:     #FFFFFF;
+  --surface-alt: #E7ECEA;
+  --ink:         #12181B;
+  --ink-soft:    #46565A;
+  --ink-faint:   #77878A;
+  --rule:        #D3DBD9;
+  --rule-strong: #B4C0BD;
+  --accent:      #0B6255;
+  --accent-soft: #DCEAE6;
+  --alert:       #A8401A;
+  --alert-soft:  #F6E3DA;
+  --code-bg:     #EDF1EF;
+
+  --f-display: "Helvetica Neue", Helvetica, "Segoe UI", Arial, sans-serif;
+  --f-body: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --f-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --measure: 68ch;
+  --step--1: 0.8125rem;
+  --step-0:  1.0625rem;
+  --step-1:  1.25rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0D1315;
+    --surface:     #151D1F;
+    --surface-alt: #1D2729;
+    --ink:         #E2E9E7;
+    --ink-soft:    #A3B2B0;
+    --ink-faint:   #748583;
+    --rule:        #263234;
+    --rule-strong: #3A4A4C;
+    --accent:      #4FBFA9;
+    --accent-soft: #12302B;
+    --alert:       #E08155;
+    --alert-soft:  #33190F;
+    --code-bg:     #101A1B;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #0D1315;
+  --surface:     #151D1F;
+  --surface-alt: #1D2729;
+  --ink:         #E2E9E7;
+  --ink-soft:    #A3B2B0;
+  --ink-faint:   #748583;
+  --rule:        #263234;
+  --rule-strong: #3A4A4C;
+  --accent:      #4FBFA9;
+  --accent-soft: #12302B;
+  --alert:       #E08155;
+  --alert-soft:  #33190F;
+  --code-bg:     #101A1B;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: var(--step-0);
+  line-height: 1.65;
+  margin: 0;
+  padding: 0 1.25rem 6rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 54rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3.5rem;
+}
+
+/* --- masthead ------------------------------------------------------------ */
+.masthead {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 3.5rem 0 2rem;
+  border-bottom: 2px solid var(--ink);
+}
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+h1 {
+  font-family: var(--f-display);
+  font-size: var(--step-4);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  text-wrap: balance;
+  margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1);
+  color: var(--ink-soft);
+  max-width: var(--measure);
+  margin: 0;
+}
+
+/* --- fact strip ---------------------------------------------------------- */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.fact {
+  background: var(--surface);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.fact dt {
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.fact dd {
+  font-family: var(--f-mono);
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+/* --- sections ------------------------------------------------------------ */
+section { display: flex; flex-direction: column; gap: 1.25rem; }
+
+h2 {
+  font-family: var(--f-display);
+  font-size: var(--step-3);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-wrap: balance;
+  margin: 0;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--rule-strong);
+}
+h3 {
+  font-family: var(--f-display);
+  font-size: var(--step-1);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0.75rem 0 0;
+  text-wrap: balance;
+}
+p { margin: 0; max-width: var(--measure); }
+ul, ol { margin: 0; padding-left: 1.3rem; max-width: var(--measure); display: flex; flex-direction: column; gap: 0.5rem; }
+strong { font-weight: 700; }
+a { color: var(--accent); }
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.875em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 2px;
+}
+pre {
+  font-family: var(--f-mono);
+  font-size: var(--step--1);
+  background: var(--code-bg);
+  border-left: 3px solid var(--rule-strong);
+  padding: 0.9rem 1.1rem;
+  margin: 0;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+pre code { background: none; padding: 0; }
+
+/* --- pipeline: encodes WHICH HOST each step runs on ---------------------- */
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.stage {
+  background: var(--surface);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.stage .host {
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.4rem;
+  align-self: flex-start;
+  border-radius: 2px;
+}
+.host.dev   { background: var(--surface-alt); color: var(--ink-soft); }
+.host.robot { background: var(--accent-soft); color: var(--accent); }
+.stage .what { font-family: var(--f-display); font-weight: 700; font-size: 0.95rem; }
+.stage .note { font-size: var(--step--1); color: var(--ink-soft); line-height: 1.45; }
+
+/* --- callouts ------------------------------------------------------------ */
+.callout {
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-left: 4px solid var(--accent);
+  padding: 1.1rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.callout.danger { border-left-color: var(--alert); background: var(--alert-soft); }
+.callout .label {
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.callout.danger .label { color: var(--alert); }
+.callout p { max-width: none; }
+
+/* --- tables -------------------------------------------------------------- */
+.scroll { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td {
+  text-align: left;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+thead th {
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--rule-strong);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ok   { color: var(--accent); font-weight: 700; }
+.bad  { color: var(--alert); font-weight: 700; }
+
+/* --- decisions ----------------------------------------------------------- */
+.decisions { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.decision { background: var(--surface); padding: 1.1rem 1.3rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.decision .q { font-family: var(--f-display); font-weight: 700; font-size: var(--step-1); letter-spacing: -0.01em; }
+.decision .rec { font-size: var(--step--1); color: var(--ink-soft); }
+.decision .rec b { color: var(--accent); font-family: var(--f-display); }
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding-top: 1.25rem;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  font-family: var(--f-mono);
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Week04 补充 · 缺口 1 · C++/ROS2 + TensorRT</p>
+  <h1>R1 推理链路</h1>
+  <p class="standfirst">
+    把训练好的 <code>week04_nohead</code> 策略跑到 TensorRT + ROS 2 节点上的完整方案。
+    工作区已建成并全链路验证通过；末尾四项决策已于 2026-08-19 确认并写回开发计划。
+  </p>
+</header>
+
+<dl class="facts">
+  <div class="fact"><dt>工作区</dt><dd>R1process/deploy</dd></div>
+  <div class="fact"><dt>TensorRT</dt><dd>10.7.0</dd></div>
+  <div class="fact"><dt>ROS 2</dt><dd>humble</dd></div>
+  <div class="fact"><dt>数值对齐</dt><dd class="ok">1.05e-05</dd></div>
+  <div class="fact"><dt>50Hz 时延 p50</dt><dd>198 µs</dd></div>
+  <div class="fact"><dt>周期预算占用</dt><dd>1.0 %</dd></div>
+</dl>
+
+<!-- ==================================================================== -->
+<section>
+  <h2>1. 方案总览</h2>
+
+  <p>
+    核心取舍只有一条：<strong>ONNX 是唯一跨机器传递的产物，引擎不是。</strong>
+    TensorRT 的 <code>.plan</code> 文件把 TensorRT 版本、GPU 架构和驱动一起烧进去了，
+    开发机上生成的引擎在 Orin NX 上根本不会加载。所以引擎构建必须发生在机器人上，
+    这直接决定了工作区要提供的是「一套能在两种机器上都跑起来的工具」，而不是一个编译产物。
+  </p>
+
+  <div class="pipeline">
+    <div class="stage">
+      <span class="host dev">开发机</span>
+      <span class="what">训练 → ONNX</span>
+      <span class="note">rsl_rl 导出 <code>policy.onnx</code>：4×Gemm + 3×Elu，425→24，无归一化层</span>
+    </div>
+    <div class="stage">
+      <span class="host dev">开发机</span>
+      <span class="what">接口契约</span>
+      <span class="note"><code>dump_interface.py</code> 从活的 Isaac Lab 环境导出关节顺序、观测布局、动作缩放</span>
+    </div>
+    <div class="stage">
+      <span class="host dev">开发机</span>
+      <span class="what">参考数据</span>
+      <span class="note"><code>make_fixture.py</code> 用 PyTorch 跑 512 个样本，记录输入输出作为金标准</span>
+    </div>
+    <div class="stage">
+      <span class="host robot">机器人</span>
+      <span class="what">构建引擎</span>
+      <span class="note"><code>r1_build_engine</code> 在目标机上把 ONNX 编译成 <code>.plan</code></span>
+    </div>
+    <div class="stage">
+      <span class="host robot">机器人</span>
+      <span class="what">对齐验证 · 闸门</span>
+      <span class="note"><code>r1_parity_check</code> 回放金标准，比对数值并剖析时延</span>
+    </div>
+    <div class="stage">
+      <span class="host robot">机器人</span>
+      <span class="what">ROS 2 节点</span>
+      <span class="note"><code>r1_policy_node</code> 维护 5 帧历史、推理、发布动作与关节目标</span>
+    </div>
+  </div>
+
+  <h3>职责切分</h3>
+  <p>
+    节点只做三件事：<strong>堆历史、推理、发指令</strong>。它订阅的是<em>当前这一帧</em>的 85 个浮点数，
+    而不是拼好的 425 维向量。这条边界是刻意划的 —— 425 维的排布方式是训练时的产物，
+    每多一个自己拼装它的消费者，就多一次静默拼错的机会。
+  </p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>话题</th><th>类型</th><th class="num">维度</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>~/obs</code></td><td>Float32MultiArray</td><td class="num">85</td><td>订阅。当前帧传感器值，按观测项顺序排列</td></tr>
+        <tr><td><code>~/action</code></td><td>Float32MultiArray</td><td class="num">24</td><td>发布。策略原始输出</td></tr>
+        <tr><td><code>~/joint_target</code></td><td>Float32MultiArray</td><td class="num">24</td><td>发布。<code>default + scale × action</code>，可直接送 PD</td></tr>
+        <tr><td><code>~/latency_us</code></td><td>Float32</td><td class="num">1</td><td>发布。单周期推理耗时，便于 rosbag 事后核查</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    另有 <code>mode:=selftest</code>：节点用内部定时器以 50 Hz 自驱、喂合成观测，
+    不需要机器人也不需要仿真。这是给 W06「悬空空跑」提前排练用的。
+  </p>
+</section>
+
+<!-- ==================================================================== -->
+<section>
+  <h2>2. 两个改变做法的发现</h2>
+
+  <div class="callout danger">
+    <span class="label">发现一 · 部署阻断级</span>
+    <p style="font-family: var(--f-display); font-weight: 700; font-size: var(--step-1);">
+      TensorRT 10.3.0 在这台机器上静默算错
+    </p>
+    <p>
+      我最初选的就是 <strong>10.3.0</strong> —— JetPack 6.1/6.2 给 Orin 配的版本，
+      与目标一致本是最稳的选择。它在这台机器（Turing sm_75，驱动 580.173）上构建出的引擎
+      <strong>能加载、满速运行、不报任何错，但返回的数字是错的</strong>：与 PyTorch 相差 <code>max_abs 3.0e+01</code>，
+      即输出与正确答案毫无关系。
+    </p>
+    <p>
+      这不是精度问题，也不是 tactic 选择问题。从 ONNX 解析器和从 TensorRT API 手工搭网络，
+      builder 优化等级 0–5 全试，FP32/FP16 都试，C++ 和 Python 两条路径 —— 结果<strong>完全相同</strong>；
+      而 onnxruntime 与 PyTorch 彼此吻合到 1e-5。逐层二分的规律很具体：
+      <strong>含两个 ELU 的子图正确，含三个就错</strong>。
+    </p>
+    <p>换 <strong>TensorRT 10.7.0</strong>，与 PyTorch 对齐到 <code>1.05e-05</code>。<code>setup.sh</code> 已锁定该版本。</p>
+  </div>
+
+  <p>
+    真正重要的是它的推论。开发机和机器人现在处在<strong>不同的 TensorRT 版本</strong>上，
+    而这个故障没有任何外部征兆 —— 不抛异常、不打警告、满速运行、输出量级看着完全正常。
+    唯一能发现它的手段是拿外部参考做数值比对。所以：
+  </p>
+
+  <div class="callout">
+    <span class="label">因此成为硬性流程</span>
+    <p>
+      <strong><code>r1_parity_check</code> 必须在机器人上、对机器人上构建的引擎、再跑一遍，
+      然后才允许策略驱动任何一个关节。</strong>开发机上的绿灯对 Jetson 没有任何保证。
+    </p>
+  </div>
+
+  <p>
+    这与 Week04 的执行器力矩超限、头部顶死硬限位属于<strong>同一类</strong>：
+    没有任何聚合指标会报警，只能靠与外部参照物比对才能发现。区别在于前两个的代价是「策略不可部署」，
+    这一个的代价是「策略在真机上做布朗运动」。
+  </p>
+
+  <h3>发现二 · 微基准把推理速度高估了 8 倍</h3>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>测量方式</th><th class="num">p50</th><th class="num">p95</th><th class="num">p99</th><th class="num">max</th></tr></thead>
+      <tbody>
+        <tr><td>紧凑循环（<code>r1_parity_check</code>，2000 次）</td><td class="num">23.6 µs</td><td class="num">24.7 µs</td><td class="num">43.5 µs</td><td class="num">387 µs</td></tr>
+        <tr><td><strong>50 Hz 占空比（<code>r1_policy_node</code>）</strong></td><td class="num"><strong>198 µs</strong></td><td class="num"><strong>230 µs</strong></td><td class="num"><strong>386 µs</strong></td><td class="num">464 µs</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    同一个引擎、同一台机器。控制回路每 20 ms 只做约 24 µs 的活，远不足以把 GPU 从空闲档拉出来：
+    <code>nvidia-smi</code> 显示 persistence mode 关闭、<code>pstate P8</code>、
+    SM 时钟 <strong>450 MHz，而上限是 2100 MHz</strong>。紧凑循环让 GPU 一直保持高频，
+    测的是真实系统从不处于的工况。
+  </p>
+  <p>
+    两个数字对 20 ms 预算都很宽裕（诚实的那个约占 1%），但汇报要用 50 Hz 那一列。
+    Orin 上对应的旋钮是 <code>nvpmodel</code> 与 <code>jetson_clocks</code>，必须先设好再谈时延。
+  </p>
+  <p>
+    <strong>对 W08 的推论</strong>：batch=1 下这个模型的时延由 kernel 启动开销主导，不由算术主导 ——
+    FP16 引擎在这里产出了与 FP32 <strong>逐位相同</strong>的结果，因为 TensorRT 判定 FP32 内核更快、
+    根本没启用 FP16。所以 INT8 量化能省的是显存和功耗，<strong>不是毫秒</strong>。
+  </p>
+</section>
+
+<!-- ==================================================================== -->
+<section>
+  <h2>3. 部署接口契约</h2>
+
+  <p>
+    这些数字都不在 ONNX 里 —— ONNX 只知道「425 进、24 出」。任何一项弄错，
+    结果都是策略满速运行然后走进地板，所以它们由 <code>dump_interface.py</code>
+    从活环境导出，而不是手抄。
+  </p>
+
+  <h3>观测：425 = 5 帧 × 85，按项展平</h3>
+  <p>这是整条链路里最容易静默出错的一处。正确布局是<strong>项优先</strong>：</p>
+
+<pre><code>[ang_vel ×5][gravity ×5][command ×5][joint_pos ×5][joint_vel ×5][action ×5]
+    15          15           15           130            130          120     = 425</code></pre>
+
+  <p>
+    而<strong>不是</strong>五个连续的 85 维帧。两种排法长度都是 425，所以错的那种照样加载、照样运行、
+    照样输出一个看起来很自信的结果。每项内部<strong>最旧的帧在前</strong>。
+    <code>ObsAssembler</code> 独占这段逻辑，单元测试既断言正确布局、也<em>显式断言不等于</em>帧优先布局。
+  </p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>观测项</th><th class="num">每帧宽度</th><th class="num">×5</th><th class="num">偏移</th></tr></thead>
+      <tbody>
+        <tr><td><code>base_ang_vel</code></td><td class="num">3</td><td class="num">15</td><td class="num">0</td></tr>
+        <tr><td><code>projected_gravity</code></td><td class="num">3</td><td class="num">15</td><td class="num">15</td></tr>
+        <tr><td><code>velocity_commands</code></td><td class="num">3</td><td class="num">15</td><td class="num">30</td></tr>
+        <tr><td><code>joint_pos</code>（相对默认位）</td><td class="num">26</td><td class="num">130</td><td class="num">45</td></tr>
+        <tr><td><code>joint_vel</code>（绝对）</td><td class="num">26</td><td class="num">130</td><td class="num">175</td></tr>
+        <tr><td><code>actions</code>（上一周期）</td><td class="num">24</td><td class="num">120</td><td class="num">305</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    注意 <code>joint_pos</code> / <code>joint_vel</code> 是 <strong>26</strong> 维，覆盖全部关节
+    <em>包括策略不驱动的两个头部关节</em>；动作是 <strong>24</strong> 维。两个向量的索引 <code>i</code> 指向不同关节。
+  </p>
+
+  <h3>动作：24 维，articulation 顺序</h3>
+  <p>
+    顺序是机器人运动树的广度优先序，<strong>不是</strong>选中它们的正则表达式的顺序 ——
+    <code>waist_roll_joint</code> 排在索引 2，夹在两个 hip_pitch 和两个 hip_roll 之间。
+    从 <code>interface/policy_interface.md</code> 读，不要凭印象重打。
+  </p>
+<pre><code>q_target[i] = default_pos[i] + scale[i] × action[i]
+
+# scale 分四组：腿/腰 0.15，踝 0.3125，肩pitch/roll 0.375，肩yaw/肘/腕 0.4125
+# 控制周期 sim_dt 0.005 × decimation 4 = 20 ms（50 Hz）
+# 无输入归一化（empirical_normalization=false），直接喂原始值</code></pre>
+</section>
+
+<!-- ==================================================================== -->
+<section>
+  <h2>4. 验证证据</h2>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>项目</th><th>结果</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>观测装配单元测试</td><td class="ok">6 / 6 通过</td><td>含「显式断言不等于帧优先布局」一条</td></tr>
+        <tr><td>引擎构建 FP32 / FP16</td><td class="ok">1.6 s / 1.9 s</td><td>构建后立即回读反序列化，验证可加载</td></tr>
+        <tr><td>数值对齐 vs PyTorch</td><td class="ok">max 1.05e-05</td><td>512 样本，均值误差 2.7e-07</td></tr>
+        <tr><td>时延（50 Hz 真实工况）</td><td class="ok">p50 198 µs</td><td>占 20 ms 预算的 1.0%，p99 占 1.9%</td></tr>
+        <tr><td>ROS 2 话题闭环</td><td class="ok">400 → 394</td><td>前 5 帧填历史，1 帧畸形被拒，其余全部产出</td></tr>
+        <tr><td>畸形输入处理</td><td class="ok">拒绝并限流告警</td><td>2 维帧被丢弃，不进入历史缓冲</td></tr>
+        <tr><td><code>joint_target</code> 换算</td><td class="ok">吻合</td><td>-0.1 + 0.15×0.0138 = -0.0979</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    fixture 的 512 个样本刻意分三档：四分之一近零（站立工况）、八分之一 4σ 离群（压数值），
+    其余正常幅度。纯高斯噪声会去到策略从不访问的输入空间，那里的 FP16 偏差既不代表性也不可行动。
+  </p>
+</section>
+
+<!-- ==================================================================== -->
+<section>
+  <h2>5. 四项决策（已确认）</h2>
+
+  <p>2026-08-19 确认，四份文档已同步更新。</p>
+
+  <div class="decisions">
+    <div class="decision">
+      <span class="q">① TensorRT 版本 —— 不预设，实测说了算</span>
+      <p>
+        已产出 <strong>《R1 真机上机操作清单 · 推理链路》</strong>（<code>~/kdw/</code>）：七个阶段，
+        阶段 4「数值对齐」是硬闸门，含失败时的五选项决策树 ——
+        降精度重建 / 拆图规避 / onnxruntime 兜底 / 手写 CPU 前向 / 升级 JetPack，按代价从低到高。
+      </p>
+      <p class="rec">
+        值得单记一笔：这个策略只有 4 个 GEMM + 3 个 ELU、约 73k MAC，Orin 的 ARM 核心几十 µs 就能算完。
+        <b>即使 TensorRT 整条路都走不通，推理本身也不构成风险</b> —— 真正的代价是项目的
+        TensorRT 叙事（FR-Q*）需要重写。清单末尾一句话总结：先证明它算得对，再关心它跑得快，最后才让它碰关节。
+      </p>
+    </div>
+
+    <div class="decision">
+      <span class="q">② 观测来源 —— 保持通用话题 + 单独 bridge</span>
+      <p>
+        策略节点继续订阅通用 <code>Float32MultiArray</code>，由独立 bridge 负责
+        <code>unitree_go/LowState</code> → 85 维帧的转换。已写入 Week06 计划步骤 2。
+      </p>
+      <p class="rec">多一跳在 20 ms 预算里可以忽略；换来的是节点可单测、可 rosbag 回放、可被仿真直接驱动。</p>
+    </div>
+
+    <div class="decision">
+      <span class="q">③ W08 的 INT8 目标 —— 改为「行为不退化」</span>
+      <p>
+        Week08 计划已改：新增「INT8 行为一致性验收」为独立步骤，分三层 ——
+        单步数值给解释、闭环轨迹给硬判据、真机悬空给安全，只有第二层是通过线。
+        原「相对加速比达标」目标撤销；基准脚本重点从时延转向体积与功耗。
+      </p>
+      <p class="rec">
+        同时加了一条风险提示：<b>不要为了让 INT8「有收益」而改成吞吐量口径去凑加速比。</b>
+        真机就是 batch=1、50 Hz，换口径测出的数与部署现实无关，评审时会被问穿。
+        如实说「时延无差异」反而把 INT8 重新定位成 M3 鲁棒性实验的可控扰动源，与 FR-R2/PG-5 直接接上。
+      </p>
+    </div>
+
+    <div class="decision">
+      <span class="q">④ 超时看门狗 —— 加入 Week06</span>
+      <p>
+        新增目标与独立步骤：三类异常（观测断流 / 推理失败 / 频率跌落）各有检测与降级；
+        降级行为的三个候选必须在该周选定一个写进文档；测试要主动制造故障（杀 bridge、发畸形帧、拔网线）。
+      </p>
+      <p class="rec">
+        恢复必须<b>显式</b>：跨越空白期的 5 帧历史属于训练分布外，要清空缓冲、重填满再输出
+        （<code>ObsAssembler::Reset()</code> + <code>hold_until_warm</code> 已支持）。
+        计划里明确标注看门狗<b>不在「高风险周可砍」范围内</b>。
+        <strong>在它到位之前，任何真机测试必须留人在急停开关上。</strong>
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  2026-08-19 · 工作区 <code>R1process/deploy</code> · 策略 <code>2026-08-19_11-03-32_week04_nohead</code> ·
+  完整说明见 <code>deploy/README.md</code> · 上机步骤见 <code>~/kdw/R1真机上机操作清单_推理链路.md</code>
+</footer>
+
+</div>

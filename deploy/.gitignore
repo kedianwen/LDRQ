@@ -1,0 +1,18 @@
+# Provisioned by setup.sh from pip wheels and NVIDIA's public header repo.
+# Reproducible, large, and host-specific -- the script is the source of truth.
+.venv/
+third_party/
+
+# colcon output
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Engines are NOT portable: a .plan is valid only for the TensorRT version,
+# GPU architecture and driver that built it. The ONNX is the artefact that
+# travels; the engine is rebuilt on each target. Same reasoning as the
+# top-level .gitignore's exclusion of logs/.
+artifacts/*.plan
+artifacts/*.onnx
+artifacts/*.pt
+artifacts/*.bin
