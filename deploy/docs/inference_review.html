@@ -539,7 +539,7 @@ footer {
         降精度重建 / 拆图规避 / onnxruntime 兜底 / 手写 CPU 前向 / 升级 JetPack，按代价从低到高。
       </p>
       <p class="rec">
-        值得单记一笔：这个策略只有 4 个 GEMM + 3 个 ELU、约 73k MAC，Orin 的 ARM 核心几十 µs 就能算完。
+        值得单记一笔：这个策略只有 4 个 GEMM + 3 个 ELU、约 90k MAC，Orin 的 ARM 核心几十 µs 就能算完。
         <b>即使 TensorRT 整条路都走不通，推理本身也不构成风险</b> —— 真正的代价是项目的
         TensorRT 叙事（FR-Q*）需要重写。清单末尾一句话总结：先证明它算得对，再关心它跑得快，最后才让它碰关节。
       </p>
@@ -549,7 +549,7 @@ footer {
       <span class="q">② 观测来源 —— 保持通用话题 + 单独 bridge</span>
       <p>
         策略节点继续订阅通用 <code>Float32MultiArray</code>，由独立 bridge 负责
-        <code>unitree_go/LowState</code> → 85 维帧的转换。已写入 Week06 计划步骤 2。
+        <code>unitree_hg/LowState</code> → 85 维帧的转换。已写入 Week06 计划步骤 2。（2026-08-26 上机核实：R1 用 <code>unitree_hg</code>，此前的 <code>unitree_go</code> 是四足的包。）
       </p>
       <p class="rec">多一跳在 20 ms 预算里可以忽略；换来的是节点可单测、可 rosbag 回放、可被仿真直接驱动。</p>
     </div>

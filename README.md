@@ -34,6 +34,31 @@ and Isaac Lab dumps the fully-resolved configs to
 `logs/rsl_rl/r1_flat/<run_id>/params/{env,agent}.yaml` at launch. Each archived
 run in `experiments/<run_id>/` keeps those configs plus a `pip freeze` snapshot.
 
+**Where the hyperparameters actually live.** They are Python dataclasses
+(`tasks/r1_flat/flat_env_cfg.py`, `.../agents/rsl_rl_ppo_cfg.py`), and the
+`params/*.yaml` beside each run are a *dump* of the resolved config — editing
+that yaml changes nothing. This is Isaac Lab's design, and it keeps type
+checking and IDE navigation over the config, but on its own a dump is weaker
+than a spec: it records what happened without anything checking that the code
+still produces it.
+
+`scripts/verify_repro.py` closes that. It rebuilds the config from current code
+and diffs it field by field against a run's archived yaml, so the dump becomes a
+contract the repository is tested against:
+
+```bash
+~/IsaacLab/isaaclab.sh -p scripts/verify_repro.py --headless \
+    --run 2026-08-19_11-03-32_week04_nohead
+# RESULT: PASS -- current code reproduces this run's configuration exactly
+```
+
+It exits non-zero on drift and writes `experiments/<run_id>/repro_check.txt`.
+Fields that vary per invocation (env count, device, run name) are reported
+separately from real drift, and values the scene resolves at construction time
+(`{ENV_REGEX_NS}` placeholders, terrain env count/spacing) are normalised rather
+than ignored. Run it against a superseded run to see it work: `week04_hwspec`
+reports exactly the two fields the head removal changed.
+
 ```bash
 conda activate env_isaaclab
 

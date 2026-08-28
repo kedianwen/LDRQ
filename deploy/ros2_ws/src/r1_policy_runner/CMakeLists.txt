@@ -39,9 +39,13 @@ find_library(TENSORRT_ONNX_LIB nvonnxparser
   HINTS ${TENSORRT_ROOT}/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
 
 find_path(CUDART_INCLUDE_DIR cuda_runtime_api.h
-  HINTS ${CUDART_ROOT}/include /usr/local/cuda/include /usr/include)
+  HINTS ${CUDART_ROOT}/include ${CUDART_ROOT}/targets/aarch64-linux/include
+        /usr/local/cuda/include /usr/local/cuda/targets/aarch64-linux/include /usr/include)
 find_library(CUDART_LIB cudart
-  HINTS ${CUDART_ROOT}/lib ${CUDART_ROOT}/lib64 /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu)
+  HINTS ${CUDART_ROOT}/lib ${CUDART_ROOT}/lib64
+        ${CUDART_ROOT}/targets/aarch64-linux/lib
+        /usr/local/cuda/lib64 /usr/local/cuda/targets/aarch64-linux/lib
+        /usr/lib/aarch64-linux-gnu)
 
 foreach(v TENSORRT_INCLUDE_DIR TENSORRT_ONNX_INCLUDE_DIR TENSORRT_LIB TENSORRT_ONNX_LIB
           CUDART_INCLUDE_DIR CUDART_LIB)
@@ -96,10 +100,21 @@ install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
 
 if(BUILD_TESTING)
-  find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_obs_assembler test/test_obs_assembler.cpp)
-  if(TARGET test_obs_assembler)
-    target_include_directories(test_obs_assembler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  # QUIET, not REQUIRED. The R1's Orin runs a ros-base image where the test
+  # tooling is not installed, and Foxy is EOL so `apt install
+  # ros-foxy-ament-cmake-gtest` is not always available. A missing test
+  # framework must degrade to "no tests", never to "the node does not build" --
+  # the node is the deliverable, and the tests can be run on the dev box.
+  find_package(ament_cmake_gtest QUIET)
+  if(ament_cmake_gtest_FOUND)
+    ament_add_gtest(test_obs_assembler test/test_obs_assembler.cpp)
+    if(TARGET test_obs_assembler)
+      target_include_directories(test_obs_assembler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    endif()
+  else()
+    message(WARNING
+      "ament_cmake_gtest not found -- unit tests are being SKIPPED. "
+      "`colcon test` will report 0 tests, which is not the same as 0 failures.")
   endif()
 endif()
 

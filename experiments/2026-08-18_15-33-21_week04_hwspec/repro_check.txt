@@ -1,0 +1,27 @@
+[info] run       2026-08-18_15-33-21_week04_hwspec
+[info] archive   experiments/2026-08-18_15-33-21_week04_hwspec/params
+
+CONFIG DRIFT -- current code would NOT reproduce this run (1):
+  env.actions.joint_pos.joint_names
+      archived: "['.*']"
+      current : "['.*_hip_.*_joint', '.*_knee_joint', '.*_ankle_.*_joint', 'waist_.*_joint', '.*_shoulder_.*_joint', '.*_elbow_joint', '.*_wrist_roll_joint']"
+
+STRUCTURAL CHANGE -- fields added or removed since the run (1):
+  env.actions.joint_pos.scale.head_.*_joint
+      archived: 0.4125
+      current : '<absent in current>'
+
+expected to vary per invocation (2):
+  env.seed
+      archived: 42
+      current : None
+  agent.run_name
+      archived: 'week04_hwspec'
+      current : ''
+
+[seed] archived=42  current=42  OK
+
+RESULT: FAIL -- 1 drifted field(s), 1 structural change(s).
+        The archived yaml no longer describes what this code builds.
+
+[ok] report written to experiments/2026-08-18_15-33-21_week04_hwspec/repro_check.txt

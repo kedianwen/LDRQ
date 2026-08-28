@@ -165,6 +165,17 @@ struct TrtPolicy::Impl
   float * h_out = nullptr;  // pinned
   std::size_t in_bytes = 0;
   std::size_t out_bytes = 0;
+#if !R1_TRT10
+  // TensorRT 8's enqueueV2 takes a bindings array indexed by binding index, so
+  // the indices must be carried, not assumed. In practice the ONNX parser adds
+  // inputs first and index 0 is the input -- but a silently-swapped pair would
+  // feed the network its own uninitialised output buffer and still return
+  // success, which is precisely the failure mode this project has already been
+  // bitten by once (TensorRT 10.3 computing wrong answers without erroring).
+  int in_idx = -1;
+  int out_idx = -1;
+  std::vector<void *> bindings;
+#endif
 
   ~Impl()
   {
@@ -234,14 +245,24 @@ TrtPolicy::TrtPolicy(const std::string & plan_path, int device)
     throw std::runtime_error("expected exactly 1 input and 1 output tensor");
   }
 #else
+  const int n_bindings = impl_->engine->getNbBindings();
+  impl_->bindings.assign(static_cast<std::size_t>(n_bindings), nullptr);
+
   int n_in = 0, n_out = 0;
-  for (int i = 0; i < impl_->engine->getNbBindings(); ++i) {
+  for (int i = 0; i < n_bindings; ++i) {
     const int64_t vol = volumeOf(impl_->engine->getBindingDimensions(i));
     if (vol < 0) {throw std::runtime_error("dynamic shapes are not supported by this runner");}
+    if (impl_->engine->getBindingDataType(i) != nvinfer1::DataType::kFLOAT) {
+      throw std::runtime_error(
+              std::string("binding '") + impl_->engine->getBindingName(i) +
+              "' is not FP32 at the boundary");
+    }
     if (impl_->engine->bindingIsInput(i)) {
-      info_.input_name = impl_->engine->getBindingName(i); info_.input_dim = vol; ++n_in;
+      info_.input_name = impl_->engine->getBindingName(i);
+      info_.input_dim = vol; impl_->in_idx = i; ++n_in;
     } else {
-      info_.output_name = impl_->engine->getBindingName(i); info_.output_dim = vol; ++n_out;
+      info_.output_name = impl_->engine->getBindingName(i);
+      info_.output_dim = vol; impl_->out_idx = i; ++n_out;
     }
   }
   if (n_in != 1 || n_out != 1) {
@@ -282,6 +303,10 @@ TrtPolicy::TrtPolicy(const std::string & plan_path, int device)
   {
     throw std::runtime_error("setTensorAddress failed");
   }
+#else
+  // Same "bind once" contract as the TRT10 path, by index rather than by name.
+  impl_->bindings[static_cast<std::size_t>(impl_->in_idx)] = impl_->d_in;
+  impl_->bindings[static_cast<std::size_t>(impl_->out_idx)] = impl_->d_out;
 #endif
 
   // A first pass on load: the initial enqueue pays for lazy kernel-module load
@@ -310,8 +335,7 @@ bool TrtPolicy::Infer(const float * obs, float * action)
 #if R1_TRT10
   if (!impl_->context->enqueueV3(impl_->stream)) {return false;}
 #else
-  void * bindings[2] = {impl_->d_in, impl_->d_out};
-  if (!impl_->context->enqueueV2(bindings, impl_->stream, nullptr)) {return false;}
+  if (!impl_->context->enqueueV2(impl_->bindings.data(), impl_->stream, nullptr)) {return false;}
 #endif
 
   if (cudaMemcpyAsync(

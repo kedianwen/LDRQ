@@ -1,0 +1,16 @@
+[info] run       2026-08-19_11-03-32_week04_nohead
+[info] archive   experiments/2026-08-19_11-03-32_week04_nohead/params
+
+expected to vary per invocation (2):
+  env.seed
+      archived: 42
+      current : None
+  agent.run_name
+      archived: 'week04_nohead'
+      current : ''
+
+[seed] archived=42  current=42  OK
+
+RESULT: PASS -- current code reproduces this run's configuration exactly (2 invocation-dependent field(s) allowed to differ).
+
+[ok] report written to experiments/2026-08-19_11-03-32_week04_nohead/repro_check.txt
