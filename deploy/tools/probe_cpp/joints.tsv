@@ -1,0 +1,28 @@
+# GENERATED from policy_interface.json by gen_joints.py -- do not hand-edit.
+# art_idx	joint_name	action_idx (-1 = not policy-actuated)
+0	left_hip_pitch_joint	0
+1	right_hip_pitch_joint	1
+2	waist_roll_joint	2
+3	left_hip_roll_joint	3
+4	right_hip_roll_joint	4
+5	waist_yaw_joint	5
+6	left_hip_yaw_joint	6
+7	right_hip_yaw_joint	7
+8	head_pitch_joint	-1
+9	left_shoulder_pitch_joint	8
+10	right_shoulder_pitch_joint	9
+11	left_knee_joint	10
+12	right_knee_joint	11
+13	head_yaw_joint	-1
+14	left_shoulder_roll_joint	12
+15	right_shoulder_roll_joint	13
+16	left_ankle_pitch_joint	14
+17	right_ankle_pitch_joint	15
+18	left_shoulder_yaw_joint	16
+19	right_shoulder_yaw_joint	17
+20	left_ankle_roll_joint	18
+21	right_ankle_roll_joint	19
+22	left_elbow_joint	20
+23	right_elbow_joint	21
+24	left_wrist_roll_joint	22
+25	right_wrist_roll_joint	23

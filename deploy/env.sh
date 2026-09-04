@@ -71,7 +71,43 @@ fi
 # lib64 as well as lib: JetPack puts the CUDA runtime under
 # /usr/local/cuda/lib64 (a symlink into targets/aarch64-linux/lib), while the
 # pip wheels staged by setup.sh use lib.
-export LD_LIBRARY_PATH="${TENSORRT_ROOT}/lib:${CUDART_ROOT}/lib:${CUDART_ROOT}/lib64:${LD_LIBRARY_PATH:-}"
+# /usr/local/lib: unitree_sdk2 and the CycloneDDS it ships install there. The
+# static libunitree_sdk2.a needs no runtime path, but the DDS libraries beside
+# it may be shared depending on how the SDK was built.
+export LD_LIBRARY_PATH="${TENSORRT_ROOT}/lib:${CUDART_ROOT}/lib:${CUDART_ROOT}/lib64:/usr/local/lib:${LD_LIBRARY_PATH:-}"
+
+# W06: the bridge links unitree_sdk2, which statically contains CycloneDDS
+# 0.10.2. Loading ROS's rmw_cyclonedds_cpp into the same process pulls in the
+# system CycloneDDS 0.7.0 as well -- two versions of the same library in one
+# address space. Pin the ROS side to Fast-RTPS (also foxy's default) so it never
+# happens by accident.
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+
+# Isolate the ROS side from the robot network by DEFAULT, not by remembering to.
+# Domain 0 on this machine carries the factory stack's DDS traffic; a ROS
+# participant that joins it dies in discovery -- `ros2 topic list` and any rclpy
+# node throw std::bad_alloc and get OOM-killed (measured 2026-08-26 and again
+# 2026-09-02). The symptom is "topic does not appear to be published yet",
+# which reads as a missing publisher rather than a poisoned domain.
+#
+# This does NOT touch the robot link: the bridge reaches rt/lowstate through
+# unitree_sdk2's own CycloneDDS participant, bound to its own interface and
+# domain. Observed: obs stayed at 50.0 Hz with the ROS side on domain 99.
+#
+# Override both if you deliberately need to talk to something off-box.
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-99}"
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-1}"
+
+# `:-` only fills in an UNSET variable. A shell that already carries
+# ROS_LOCALHOST_ONLY=0 keeps it, and the default above is silently bypassed --
+# which is how two terminals ended up on 1 and 0 and stopped seeing each other
+# (2026-09-02). Discovery just fails; nothing reports a reason. So say it.
+if [[ "${ROS_LOCALHOST_ONLY}" != "1" ]]; then
+    echo "WARNING: ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY} (inherited, not the default 1)." >&2
+    echo "         On this robot every terminal must agree, or ROS nodes will not" >&2
+    echo "         discover each other and \`ros2 topic list\` comes back empty." >&2
+    echo "         Fix with: export ROS_LOCALHOST_ONLY=1 && source env.sh" >&2
+fi
 export R1_DEPLOY_ROOT="${_r1_deploy_root}"
 
 # Overlay the workspace if it has been built.
@@ -80,4 +116,8 @@ if [[ -f "${_r1_deploy_root}/ros2_ws/install/setup.bash" ]]; then
 fi
 
 echo "r1 deploy env: TENSORRT_ROOT=${TENSORRT_ROOT}  CUDART_ROOT=${CUDART_ROOT}  ROS=${ROS_DISTRO}"
+# Print the values that actually took effect, not the ones we tried to set:
+# every terminal has to match, and a mismatch is invisible until discovery
+# quietly fails.
+echo "               ROS_DOMAIN_ID=${ROS_DOMAIN_ID}  ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY}  RMW=${RMW_IMPLEMENTATION}"
 unset _r1_deploy_root

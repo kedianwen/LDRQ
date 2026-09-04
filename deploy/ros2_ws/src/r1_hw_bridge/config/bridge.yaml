@@ -1,0 +1,18 @@
+# Bridge defaults. Gains are the ones to argue about before the first hanging
+# run; everything else is protocol.
+/**:
+  ros__parameters:
+    iface: "eth10"           # measured in stage 2; `ip -brief addr` to confirm
+    dds_domain: 0
+    control_rate_hz: 50.0    # must equal the policy's; it is what training used
+    cmd_rate_hz: 500.0       # motor bus rate; the PD loop itself is in firmware
+    enable_output: false     # SAFETY: opt in, never default
+    check_state_crc: true
+    kp: 40.0
+    kd: 1.0
+    head_kp: 10.0            # head is unactuated by the policy, just held
+    damping_kd: 2.0          # degrade behaviour: zero stiffness, resist motion
+    lowstate_timeout_ms: 100.0
+    target_timeout_ms: 60.0  # 3 control cycles at 50 Hz
+    min_control_rate_hz: 45.0
+    auto_recover: false      # recovery is explicit, via ~/resume

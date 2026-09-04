@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>r1_hw_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    unitree_hg LowState/LowCmd &lt;-&gt; generic ROS 2 topics for the R1 policy runner.
+
+    Deliberately the only package that knows about Unitree message types. The
+    policy node speaks Float32MultiArray, so it stays unit-testable, replayable
+    from rosbag and drivable from simulation without the SDK.
+  </description>
+  <maintainer email="dianwenke@gmail.com">Kelvin</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

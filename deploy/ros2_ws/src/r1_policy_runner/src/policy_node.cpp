@@ -20,8 +20,10 @@
 #include "r1_policy_runner/trt_policy.hpp"
 
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -112,6 +114,15 @@ public:
     if (emit_targets_) {
       target_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/joint_target", qos);
     }
+    status_pub_ = create_publisher<std_msgs::msg::String>(
+      "~/status", rclcpp::QoS(rclcpp::KeepLast(10)).reliable().transient_local());
+
+    // The bridge asks for this after an outage. Recovery cannot be automatic:
+    // the 5-frame history now straddles a gap, which the policy never saw in
+    // training, so the buffer is cleared and refilled before output resumes.
+    reset_sub_ = create_subscription<std_msgs::msg::Empty>(
+      "~/policy_reset", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
+      [this](std_msgs::msg::Empty::ConstSharedPtr) {OnReset();});
 
     RCLCPP_INFO(
       get_logger(),
@@ -143,6 +154,27 @@ public:
   }
 
 private:
+  void OnReset()
+  {
+    assembler_->Reset();
+    // Forced on regardless of the parameter: resuming mid-gap is exactly the
+    // case the parameter must not be allowed to disable.
+    hold_until_warm_ = true;
+    nan_outputs_ = 0;
+    RCLCPP_WARN(get_logger(), "reset: history cleared, re-warming %zu frames",
+      assembler_->history());
+    PublishStatus("REWARMING");
+  }
+
+  void PublishStatus(const std::string & what)
+  {
+    if (!status_pub_) {return;}
+    std_msgs::msg::String m;
+    m.data = what + " infer_failures=" + std::to_string(infer_failures_) +
+      " nan_outputs=" + std::to_string(nan_outputs_);
+    status_pub_->publish(m);
+  }
+
   void OnObs(const std_msgs::msg::Float32MultiArray & msg)
   {
     if (msg.data.size() != assembler_->frame_dim()) {
@@ -185,7 +217,22 @@ private:
     if (!policy_->Infer(obs_.data(), action_.data())) {
       RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "TensorRT inference failed");
       ++infer_failures_;
+      PublishStatus("INFER_FAILED");
       return;
+    }
+
+    // A NaN reaches the motors as a command like any other number. Withholding
+    // the message is what puts the bridge into damping: its target-stale
+    // watchdog fires after 3 cycles. Publishing a "safe" substitute here would
+    // hide the fault from the layer that owns the safety response.
+    for (const float a : action_) {
+      if (!std::isfinite(a)) {
+        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
+          "policy output contains NaN/inf -- withholding action");
+        ++nan_outputs_;
+        PublishStatus("NAN_OUTPUT");
+        return;
+      }
     }
 
     const double us = duration<double, std::micro>(steady_clock::now() - t0).count();
@@ -229,6 +276,8 @@ private:
       pct(0.50), pct(0.95), pct(0.99), sorted.back(),
       1e6 / rate_hz_, infer_failures_);
 
+    PublishStatus(latencies_.size() / elapsed >= 0.9 * rate_hz_ ? "RUNNING" : "SLOW");
+
     latencies_.clear();
     last_stats_ = now;
   }
@@ -240,6 +289,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr action_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr latency_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
+  rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr reset_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   std::vector<float> frame_, obs_, action_;
@@ -256,6 +307,7 @@ private:
   std::vector<double> latencies_;
   std::size_t cycles_ = 0;
   std::size_t infer_failures_ = 0;
+  std::size_t nan_outputs_ = 0;
   steady_clock::time_point last_stats_;
   const steady_clock::time_point start_ = steady_clock::now();
 };
