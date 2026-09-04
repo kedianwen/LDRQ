@@ -71,3 +71,37 @@ TEST(JointMap, DefaultsCoverEveryJoint)
   }
   EXPECT_TRUE(any_nonzero);
 }
+
+TEST(JointMap, GainsArePerJointNotOneGlobalNumber)
+{
+  ASSERT_EQ(kKp.size(), kNumJoints);
+  ASSERT_EQ(kKd.size(), kNumJoints);
+  ASSERT_EQ(kTauLimit.size(), kNumJoints);
+
+  // The defect this guards against: a single global kp/kd for all 24 joints.
+  // Training used six actuator groups spanning kp 20..100; collapsing them is
+  // not a simplification, it is a different plant. On the robot it showed up
+  // as legs with no perceptible damping and a head oscillating at high
+  // frequency -- and nothing in the build reported it.
+  std::set<float> kps(kKp.begin(), kKp.end());
+  std::set<float> kds(kKd.begin(), kKd.end());
+  EXPECT_GT(kps.size(), 1u) << "every joint has the same kp -- gains collapsed";
+  EXPECT_GT(kds.size(), 1u) << "every joint has the same kd -- gains collapsed";
+
+  for (std::size_t j = 0; j < kNumJoints; ++j) {
+    EXPECT_GT(kKp[j], 0.0f) << "joint " << j;
+    EXPECT_GT(kKd[j], 0.0f) << "joint " << j;
+    EXPECT_GT(kTauLimit[j], 0.0f) << "joint " << j;
+  }
+}
+
+TEST(JointMap, LegsAreStifferThanTheHead)
+{
+  // A direction check that survives a renumbering: whatever the articulation
+  // order becomes, the hips must not end up softer than the head. Catches a
+  // gain vector that was generated against a stale joint list and silently
+  // rotated -- the arrays would still be 26 long and still look plausible.
+  EXPECT_GT(kKp[0], kKp[8]);    // left_hip_pitch vs head_pitch
+  EXPECT_GT(kKp[1], kKp[13]);   // right_hip_pitch vs head_yaw
+  EXPECT_GT(kKd[0], kKd[8]);
+}

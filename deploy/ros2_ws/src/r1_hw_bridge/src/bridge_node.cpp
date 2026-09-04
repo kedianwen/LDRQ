@@ -98,10 +98,18 @@ public:
 
     control_rate_hz_ = declare_parameter<double>("control_rate_hz", 50.0);
     cmd_rate_hz_ = declare_parameter<double>("cmd_rate_hz", 500.0);
-    kp_ = declare_parameter<double>("kp", 40.0);
-    kd_ = declare_parameter<double>("kd", 1.0);
-    head_kp_ = declare_parameter<double>("head_kp", 10.0);
-    damp_kd_ = declare_parameter<double>("damping_kd", 2.0);
+    // Gains are PER JOINT and come from the training config via kKp/kKd; these
+    // two only scale them. The first version of this node had one global kp/kd
+    // for all 24 joints, which is not a simplification of six actuator groups
+    // spanning kp 20..100 -- it is a different controller. Measured on the robot
+    // 2026-09-04: legs with no perceptible damping (their group wants kp 100,
+    // kd 2, they got 10 and 1) and a head oscillating at high frequency (its
+    // group wants kd 1, it got 3).
+    //
+    // Scale 1.0 IS the trained controller. Ramp with kp_scale, not with an
+    // absolute number, so the endpoint of the ramp is known rather than guessed.
+    kp_scale_ = declare_parameter<double>("kp_scale", 1.0);
+    kd_scale_ = declare_parameter<double>("kd_scale", 1.0);
     state_timeout_ms_ = declare_parameter<double>("lowstate_timeout_ms", 100.0);
     target_timeout_ms_ = declare_parameter<double>("target_timeout_ms", 60.0);
     min_rate_hz_ = declare_parameter<double>("min_control_rate_hz", 45.0);
@@ -168,6 +176,20 @@ public:
     // domain. Having it in the log makes that diagnosis a one-line check.
     const char * dom = std::getenv("ROS_DOMAIN_ID");
     const char * loc = std::getenv("ROS_LOCALHOST_ONLY");
+    // Print the gains that will actually be sent. A scale is easy to pass and
+    // easy to forget; the numbers below are what reaches the motors.
+    RCLCPP_INFO(get_logger(),
+                "gains: kp_scale=%.3f kd_scale=%.3f -> hip kp=%.1f kd=%.1f | "
+                "ankle kp=%.1f | head kp=%.1f kd=%.1f  (1.0 = as trained)",
+                kp_scale_, kd_scale_,
+                kKp[0] * kp_scale_, kKd[0] * kd_scale_,
+                kKp[16] * kp_scale_, kKp[8] * kp_scale_, kKd[8] * kd_scale_);
+    if (kp_scale_ > 1.0 || kd_scale_ > 1.0) {
+      RCLCPP_WARN(get_logger(),
+                  "kp_scale/kd_scale above 1.0 exceeds the trained gains -- the "
+                  "policy has never seen this plant");
+    }
+
     RCLCPP_INFO(get_logger(), "ROS side: ROS_DOMAIN_ID=%s ROS_LOCALHOST_ONLY=%s rmw=%s",
                 dom ? dom : "(unset -> 0)", loc ? loc : "(unset -> 0)",
                 rmw_get_implementation_identifier());
@@ -457,15 +479,18 @@ private:
       auto & m = cmd[kJointSlot[j]];
       m.mode = 1;
       m.q = s.motor[kJointSlot[j]].q;   // undriven: hold where it is
-      m.kd = static_cast<float>(damp_kd_);
+      // Damping only, at the joint's own trained kd. A global damping constant
+      // is either negligible on a hip or oscillatory on the head.
+      m.kd = static_cast<float>(kKd[j] * kd_scale_);
     }
 
     if (drive) {
       for (std::size_t a = 0; a < kNumActions; ++a) {
-        auto & m = cmd[kJointSlot[kActionToArt[a]]];
+        const std::size_t j = kActionToArt[a];
+        auto & m = cmd[kJointSlot[j]];
         m.q = target[a];
-        m.kp = static_cast<float>(kp_);
-        m.kd = static_cast<float>(kd_);
+        m.kp = static_cast<float>(kKp[j] * kp_scale_);
+        m.kd = static_cast<float>(kKd[j] * kd_scale_);
       }
       // The head is not actuated by the policy and was fixed during training,
       // so hold it at the default pose rather than leaving it to flop.
@@ -473,8 +498,8 @@ private:
         if (!IsActuated(j)) {
           auto & m = cmd[kJointSlot[j]];
           m.q = kDefaultPos[j];
-          m.kp = static_cast<float>(head_kp_);
-          m.kd = static_cast<float>(kd_);
+          m.kp = static_cast<float>(kKp[j] * kp_scale_);
+          m.kd = static_cast<float>(kKd[j] * kd_scale_);
         }
       }
     }
@@ -507,10 +532,11 @@ private:
     PublishStatus();
     if (++status_ticks_ % 5 != 0) {return;}
     RCLCPP_INFO(get_logger(),
-      "%s | obs %.1f Hz (want %.0f) | cmd %.1f Hz (want %.0f) | output=%s | crc_fail=%zu",
+      "%s | obs %.1f Hz (want %.0f) | cmd %.1f Hz (want %.0f) | output=%s | "
+      "kp_scale=%.2f | crc_fail=%zu",
       StateName(state_.load()), obs_hz_.load(), control_rate_hz_,
       cmd_hz_.load(), cmd_rate_hz_,
-      io_->output_enabled() ? "ON" : "off", io_->crc_failures());
+      io_->output_enabled() ? "ON" : "off", kp_scale_, io_->crc_failures());
   }
 
   void PublishStatus()
@@ -531,7 +557,7 @@ private:
 
   // parameters
   double control_rate_hz_ = 50.0, cmd_rate_hz_ = 500.0;
-  double kp_ = 40.0, kd_ = 1.0, head_kp_ = 10.0, damp_kd_ = 2.0;
+  double kp_scale_ = 1.0, kd_scale_ = 1.0;
   double state_timeout_ms_ = 100.0, target_timeout_ms_ = 60.0, min_rate_hz_ = 45.0;
   double cmd_vel_timeout_ms_ = 500.0;
   bool auto_recover_ = false;

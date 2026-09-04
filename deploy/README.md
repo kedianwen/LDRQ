@@ -36,6 +36,7 @@ ros2 launch r1_policy_runner policy_node.launch.py \
 | `tools/check_env.py` | version matrix; run it on both hosts and compare |
 | `tools/dump_interface.py` | emits the policy↔robot contract from a live Isaac Lab env |
 | `tools/make_fixture.py` | records PyTorch reference I/O for the parity check |
+| `tools/dump_actuator_gains.py` | resolves the six training actuator groups onto the 26 joints and writes `interface/actuator_gains.json`; ast-parses the asset rather than importing isaaclab, so it runs on the robot too |
 | `tools/gen_obs_table.py` | cross-checks the four files that decide the observation (training export, `joint_map.hpp`, both node yamls) and writes `interface/obs_consistency_table.md`; **non-zero exit on any disagreement** |
 | `ros2_ws/src/r1_policy_runner/` | the ROS 2 package: engine build, parity check, node |
 | `interface/policy_interface.{json,md}` | generated deployment contract (tracked) |

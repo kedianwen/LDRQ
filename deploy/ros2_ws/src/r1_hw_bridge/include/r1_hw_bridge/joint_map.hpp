@@ -78,6 +78,99 @@ inline constexpr std::array<float, kNumJoints> kDefaultPos = {
   +0.000000f,  // 25 right_wrist_roll_joint
 };
 
+// Per-joint PD gains AS TRAINED (see actuator_gains.json).
+// The bridge sends kp_scale * kKp[j] and kd_scale * kKd[j];
+// both scales default to 1.0, so the default is the trained controller.
+inline constexpr std::array<float, kNumJoints> kKp = {
+   100.00f,  //  0 left_hip_pitch_joint [legs]
+   100.00f,  //  1 right_hip_pitch_joint [legs]
+   100.00f,  //  2 waist_roll_joint [waist]
+   100.00f,  //  3 left_hip_roll_joint [legs]
+   100.00f,  //  4 right_hip_roll_joint [legs]
+   100.00f,  //  5 waist_yaw_joint [waist]
+   100.00f,  //  6 left_hip_yaw_joint [legs]
+   100.00f,  //  7 right_hip_yaw_joint [legs]
+    20.00f,  //  8 head_pitch_joint [head]
+    40.00f,  //  9 left_shoulder_pitch_joint [arms]
+    40.00f,  // 10 right_shoulder_pitch_joint [arms]
+   100.00f,  // 11 left_knee_joint [legs]
+   100.00f,  // 12 right_knee_joint [legs]
+    20.00f,  // 13 head_yaw_joint [head]
+    40.00f,  // 14 left_shoulder_roll_joint [arms]
+    40.00f,  // 15 right_shoulder_roll_joint [arms]
+    40.00f,  // 16 left_ankle_pitch_joint [ankles]
+    40.00f,  // 17 right_ankle_pitch_joint [ankles]
+    20.00f,  // 18 left_shoulder_yaw_joint [wrists]
+    20.00f,  // 19 right_shoulder_yaw_joint [wrists]
+    40.00f,  // 20 left_ankle_roll_joint [ankles]
+    40.00f,  // 21 right_ankle_roll_joint [ankles]
+    20.00f,  // 22 left_elbow_joint [wrists]
+    20.00f,  // 23 right_elbow_joint [wrists]
+    20.00f,  // 24 left_wrist_roll_joint [wrists]
+    20.00f,  // 25 right_wrist_roll_joint [wrists]
+};
+
+inline constexpr std::array<float, kNumJoints> kKd = {
+     2.00f,  //  0 left_hip_pitch_joint [legs]
+     2.00f,  //  1 right_hip_pitch_joint [legs]
+     2.00f,  //  2 waist_roll_joint [waist]
+     2.00f,  //  3 left_hip_roll_joint [legs]
+     2.00f,  //  4 right_hip_roll_joint [legs]
+     2.00f,  //  5 waist_yaw_joint [waist]
+     2.00f,  //  6 left_hip_yaw_joint [legs]
+     2.00f,  //  7 right_hip_yaw_joint [legs]
+     1.00f,  //  8 head_pitch_joint [head]
+     2.00f,  //  9 left_shoulder_pitch_joint [arms]
+     2.00f,  // 10 right_shoulder_pitch_joint [arms]
+     2.00f,  // 11 left_knee_joint [legs]
+     2.00f,  // 12 right_knee_joint [legs]
+     1.00f,  // 13 head_yaw_joint [head]
+     2.00f,  // 14 left_shoulder_roll_joint [arms]
+     2.00f,  // 15 right_shoulder_roll_joint [arms]
+     2.00f,  // 16 left_ankle_pitch_joint [ankles]
+     2.00f,  // 17 right_ankle_pitch_joint [ankles]
+     1.00f,  // 18 left_shoulder_yaw_joint [wrists]
+     1.00f,  // 19 right_shoulder_yaw_joint [wrists]
+     2.00f,  // 20 left_ankle_roll_joint [ankles]
+     2.00f,  // 21 right_ankle_roll_joint [ankles]
+     1.00f,  // 22 left_elbow_joint [wrists]
+     1.00f,  // 23 right_elbow_joint [wrists]
+     1.00f,  // 24 left_wrist_roll_joint [wrists]
+     1.00f,  // 25 right_wrist_roll_joint [wrists]
+};
+
+// Torque rating per joint (N*m). Not sent -- the PD loop runs in
+// firmware -- but kept here so a gain change can be sanity-checked
+// against what the hardware is rated for.
+inline constexpr std::array<float, kNumJoints> kTauLimit = {
+    60.00f,  //  0 left_hip_pitch_joint
+    60.00f,  //  1 right_hip_pitch_joint
+    60.00f,  //  2 waist_roll_joint
+    60.00f,  //  3 left_hip_roll_joint
+    60.00f,  //  4 right_hip_roll_joint
+    60.00f,  //  5 waist_yaw_joint
+    60.00f,  //  6 left_hip_yaw_joint
+    60.00f,  //  7 right_hip_yaw_joint
+    33.00f,  //  8 head_pitch_joint
+    60.00f,  //  9 left_shoulder_pitch_joint
+    60.00f,  // 10 right_shoulder_pitch_joint
+    60.00f,  // 11 left_knee_joint
+    60.00f,  // 12 right_knee_joint
+    33.00f,  // 13 head_yaw_joint
+    60.00f,  // 14 left_shoulder_roll_joint
+    60.00f,  // 15 right_shoulder_roll_joint
+    50.00f,  // 16 left_ankle_pitch_joint
+    50.00f,  // 17 right_ankle_pitch_joint
+    33.00f,  // 18 left_shoulder_yaw_joint
+    33.00f,  // 19 right_shoulder_yaw_joint
+    50.00f,  // 20 left_ankle_roll_joint
+    50.00f,  // 21 right_ankle_roll_joint
+    33.00f,  // 22 left_elbow_joint
+    33.00f,  // 23 right_elbow_joint
+    33.00f,  // 24 left_wrist_roll_joint
+    33.00f,  // 25 right_wrist_roll_joint
+};
+
 inline constexpr std::size_t kNumActions = 24;
 // Action index -> articulation index. NOT the identity.
 inline constexpr std::array<int, kNumActions> kActionToArt = {

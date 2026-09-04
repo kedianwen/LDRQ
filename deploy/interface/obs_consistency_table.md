@@ -13,7 +13,8 @@
 | 1 | `deploy/interface/policy_interface.json` | 训练端真值，由 `dump_interface.py` 导出 |
 | 2 | `r1_hw_bridge/include/r1_hw_bridge/joint_map.hpp` | bridge 从 35 槽里取哪 26 个、减哪些默认角 |
 | 3 | `r1_policy_runner/config/policy_interface.yaml` | 策略节点的历史长度、动作缩放、默认角 |
-| 4 | `r1_hw_bridge/config/bridge.yaml` | bridge 实际跑的频率 |
+| 4 | `r1_hw_bridge/config/bridge.yaml` | bridge 实际跑的频率与增益缩放 |
+| 5 | `deploy/interface/actuator_gains.json` | **训练时的每关节 PD 增益** |
 
 ---
 
@@ -45,40 +46,62 @@
 
 ## 2 · 26 关节：槽位 / 默认角 / 动作索引
 
-| art | 关节 | hg 槽 | 默认角 | action | 证据 |
-|---:|---|---:|---:|---:|---|
-| 0 | `left_hip_pitch_joint` | 0 | -0.100 | 0 | **实测** |
-| 1 | `right_hip_pitch_joint` | 6 | -0.100 | 1 | **实测** |
-| 2 | `waist_roll_joint` | 12 | +0.000 | 2 | enum + 槽集 |
-| 3 | `left_hip_roll_joint` | 1 | +0.000 | 3 | enum + 槽集 |
-| 4 | `right_hip_roll_joint` | 7 | +0.000 | 4 | enum + 槽集 |
-| 5 | `waist_yaw_joint` | 13 | +0.000 | 5 | enum + 槽集 |
-| 6 | `left_hip_yaw_joint` | 2 | +0.000 | 6 | enum + 槽集 |
-| 7 | `right_hip_yaw_joint` | 8 | +0.000 | 7 | enum + 槽集 |
-| 8 | `head_pitch_joint` | 29 | +0.000 | — | **实测** |
-| 9 | `left_shoulder_pitch_joint` | 15 | +0.350 | 8 | enum + 槽集 |
-| 10 | `right_shoulder_pitch_joint` | 22 | +0.350 | 9 | enum + 槽集 |
-| 11 | `left_knee_joint` | 3 | +0.300 | 10 | **实测** |
-| 12 | `right_knee_joint` | 9 | +0.300 | 11 | enum + 槽集 |
-| 13 | `head_yaw_joint` | 30 | +0.000 | — | enum + 槽集 |
-| 14 | `left_shoulder_roll_joint` | 16 | +0.180 | 12 | **实测** |
-| 15 | `right_shoulder_roll_joint` | 23 | -0.180 | 13 | enum + 槽集 |
-| 16 | `left_ankle_pitch_joint` | 4 | -0.200 | 14 | enum + 槽集 |
-| 17 | `right_ankle_pitch_joint` | 10 | -0.200 | 15 | enum + 槽集 |
-| 18 | `left_shoulder_yaw_joint` | 17 | +0.000 | 16 | enum + 槽集 |
-| 19 | `right_shoulder_yaw_joint` | 24 | +0.000 | 17 | enum + 槽集 |
-| 20 | `left_ankle_roll_joint` | 5 | +0.000 | 18 | **实测** |
-| 21 | `right_ankle_roll_joint` | 11 | +0.000 | 19 | enum + 槽集 |
-| 22 | `left_elbow_joint` | 18 | +0.870 | 20 | enum + 槽集 |
-| 23 | `right_elbow_joint` | 25 | +0.870 | 21 | enum + 槽集 |
-| 24 | `left_wrist_roll_joint` | 19 | +0.000 | 22 | enum + 槽集 |
-| 25 | `right_wrist_roll_joint` | 26 | +0.000 | 23 | enum + 槽集 |
+| art | 关节 | hg 槽 | 默认角 | kp | kd | τ上限 | action | 证据 |
+|---:|---|---:|---:|---:|---:|---:|---:|---|
+| 0 | `left_hip_pitch_joint` | 0 | -0.100 | 100 | 2 | 60 | 0 | **实测** |
+| 1 | `right_hip_pitch_joint` | 6 | -0.100 | 100 | 2 | 60 | 1 | **实测** |
+| 2 | `waist_roll_joint` | 12 | +0.000 | 100 | 2 | 60 | 2 | enum + 槽集 |
+| 3 | `left_hip_roll_joint` | 1 | +0.000 | 100 | 2 | 60 | 3 | enum + 槽集 |
+| 4 | `right_hip_roll_joint` | 7 | +0.000 | 100 | 2 | 60 | 4 | enum + 槽集 |
+| 5 | `waist_yaw_joint` | 13 | +0.000 | 100 | 2 | 60 | 5 | enum + 槽集 |
+| 6 | `left_hip_yaw_joint` | 2 | +0.000 | 100 | 2 | 60 | 6 | enum + 槽集 |
+| 7 | `right_hip_yaw_joint` | 8 | +0.000 | 100 | 2 | 60 | 7 | enum + 槽集 |
+| 8 | `head_pitch_joint` | 29 | +0.000 | 20 | 1 | 33 | — | **实测** |
+| 9 | `left_shoulder_pitch_joint` | 15 | +0.350 | 40 | 2 | 60 | 8 | enum + 槽集 |
+| 10 | `right_shoulder_pitch_joint` | 22 | +0.350 | 40 | 2 | 60 | 9 | enum + 槽集 |
+| 11 | `left_knee_joint` | 3 | +0.300 | 100 | 2 | 60 | 10 | **实测** |
+| 12 | `right_knee_joint` | 9 | +0.300 | 100 | 2 | 60 | 11 | enum + 槽集 |
+| 13 | `head_yaw_joint` | 30 | +0.000 | 20 | 1 | 33 | — | enum + 槽集 |
+| 14 | `left_shoulder_roll_joint` | 16 | +0.180 | 40 | 2 | 60 | 12 | **实测** |
+| 15 | `right_shoulder_roll_joint` | 23 | -0.180 | 40 | 2 | 60 | 13 | enum + 槽集 |
+| 16 | `left_ankle_pitch_joint` | 4 | -0.200 | 40 | 2 | 50 | 14 | enum + 槽集 |
+| 17 | `right_ankle_pitch_joint` | 10 | -0.200 | 40 | 2 | 50 | 15 | enum + 槽集 |
+| 18 | `left_shoulder_yaw_joint` | 17 | +0.000 | 20 | 1 | 33 | 16 | enum + 槽集 |
+| 19 | `right_shoulder_yaw_joint` | 24 | +0.000 | 20 | 1 | 33 | 17 | enum + 槽集 |
+| 20 | `left_ankle_roll_joint` | 5 | +0.000 | 40 | 2 | 50 | 18 | **实测** |
+| 21 | `right_ankle_roll_joint` | 11 | +0.000 | 40 | 2 | 50 | 19 | enum + 槽集 |
+| 22 | `left_elbow_joint` | 18 | +0.870 | 20 | 1 | 33 | 20 | enum + 槽集 |
+| 23 | `right_elbow_joint` | 25 | +0.870 | 20 | 1 | 33 | 21 | enum + 槽集 |
+| 24 | `left_wrist_roll_joint` | 19 | +0.000 | 20 | 1 | 33 | 22 | enum + 槽集 |
+| 25 | `right_wrist_roll_joint` | 26 | +0.000 | 20 | 1 | 33 | 23 | enum + 槽集 |
 
 槽集 = 普查实测 LIVE 集，6/26 条有直接掰动证据，其余由厂商 enum 加这条全局集合等式覆盖。
 
 ---
 
-## 3 · 这张表**不**覆盖什么
+## 3 · PD 增益：六组，不是一个数
+
+| 组 | kp | kd | τ上限 | 关节数 |
+|---|---:|---:|---:|---:|
+| legs | 100 | 2.0 | 60 | 8 |
+| ankles | 40 | 2.0 | 50 | 4 |
+| waist | 100 | 2.0 | 60 | 2 |
+| arms | 40 | 2.0 | 60 | 4 |
+| wrists | 20 | 1.0 | 33 | 6 |
+| head | 20 | 1.0 | 33 | 2 |
+
+bridge 发的是 `kp_scale × kKp[j]` 和 `kd_scale × kKd[j]`，**两个缩放默认 1.0，
+也就是说默认值就是训练时的控制器**。爬坡爬的是 `kp_scale`，终点明确落在 1.0。
+
+> **2026-09-04 实测的教训**：第一版 bridge 用一个全局 kp/kd 发给全部 24 个关节。
+> 那不是六组增益的简化，是另一个控制器。真机表现：`kd=1.0` 时腿完全没有阻尼感
+> （legs 组要 kp 100 / kd 2），把 kd 抬到 3.0 之后头部高频振动
+> （head 组要 kd 1.0，被喂了 3 倍）。**而当时的一致性门禁抓不到它——
+> 增益根本没被导出过。**
+
+---
+
+## 4 · 这张表**不**覆盖什么
 
 门禁比对的是**静态常量**。以下三件事只有在机器人上跑起来才能验：
 

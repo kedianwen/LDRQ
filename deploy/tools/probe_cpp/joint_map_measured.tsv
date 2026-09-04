@@ -1,0 +1,15 @@
+# Final measured anchors, R1 on the robot, 2026-09-02.
+# Produced by probe_lowstate --map. Superseded rounds are NOT here: round 1 was
+# taken with the operator facing the robot (all six came out left/right mirrored)
+# and round 2 confused the hip's three DoF. Both are written up in
+# ~/kdw/experiment_record/Week06_关节映射与IMU约定_实测定稿.md.
+#
+# Checked into the repo so `gen_joint_map.py` can keep marking these rows
+# (measured) instead of (enum): the distinction is the whole evidence trail.
+slot	art_idx	joint_name	action_idx	delta_rad	peak_dq	note
+0	0	left_hip_pitch_joint	0	-0.094000	0.552000	pure fore/aft swing
+3	11	left_knee_joint	10	0.107000	0.565000	knee is one-directional
+5	20	left_ankle_roll_joint	18	-0.124585	0.960189	
+6	1	right_hip_pitch_joint	1	-0.126553	0.684155	
+16	14	left_shoulder_roll_joint	12	-0.117889	0.500078	
+29	8	head_pitch_joint	-1	0.188559	1.100590	non-actuated joint

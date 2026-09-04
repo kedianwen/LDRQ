@@ -11,6 +11,7 @@ actually decide the behaviour, and returns non-zero if any two of them disagree:
   2. .../r1_hw_bridge/include/r1_hw_bridge/joint_map.hpp  <- what the bridge reads
   3. .../r1_policy_runner/config/policy_interface.yaml    <- what the policy node loads
   4. .../r1_hw_bridge/config/bridge.yaml                  <- rate the bridge runs at
+  5. deploy/interface/actuator_gains.json                 <- the PD gains as trained
 
 Every one of these has an independent path onto the robot (a re-export, a
 regenerated header, a hand-edited yaml, a launch override), which is exactly why
@@ -31,6 +32,7 @@ DEPLOY = HERE.parent
 JSON_PATH = DEPLOY / "interface" / "policy_interface.json"
 HPP_PATH = DEPLOY / "ros2_ws/src/r1_hw_bridge/include/r1_hw_bridge/joint_map.hpp"
 PYAML_PATH = DEPLOY / "ros2_ws/src/r1_policy_runner/config/policy_interface.yaml"
+GAINS_PATH = DEPLOY / "interface" / "actuator_gains.json"
 BYAML_PATH = DEPLOY / "ros2_ws/src/r1_hw_bridge/config/bridge.yaml"
 
 # The slot set observed live on the robot by `probe_lowstate --seconds`
@@ -195,6 +197,28 @@ def main():
         elif slots[art_names.index(name)] != slot:
             fail(f"C11 anchor {name}: measured slot {slot}, table says {slots[art_names.index(name)]}")
 
+    # ---- C13  per-joint PD gains reach the bridge unchanged --------------
+    # The gains were the one part of the contract that was NOT exported, and a
+    # single global kp/kd shipped in their place. Six actuator groups spanning
+    # kp 20..100 are not approximable by one number: on the robot it produced
+    # legs with no perceptible damping and an oscillating head.
+    g = json.loads(GAINS_PATH.read_text())
+    hkp = [float(x) for x in parse_cpp_array(hpp, "kKp")]
+    hkd = [float(x) for x in parse_cpp_array(hpp, "kKd")]
+    htau = [float(x) for x in parse_cpp_array(hpp, "kTauLimit")]
+    if g["joint_names"] != art_names:
+        fail("C13 actuator_gains.json joint order != articulation order")
+    for name, arr, key in (("kKp", hkp, "stiffness"), ("kKd", hkd, "damping"),
+                           ("kTauLimit", htau, "effort_limit")):
+        if len(arr) != len(art_names):
+            fail(f"C13 {name} has {len(arr)} entries, expected {len(art_names)}")
+            continue
+        for i, (a, b) in enumerate(zip(arr, g[key])):
+            if not close(a, b, 1e-4):
+                fail(f"C13 {name}[{i}] ({art_names[i]}): gains.json={b} hpp={a}")
+    if any(v <= 0.0 for v in hkp) or any(v <= 0.0 for v in hkd):
+        fail("C13 a non-positive gain reached the header")
+
     # ---- C12  flatten order --------------------------------------------
     if "per-term" not in j["observation"]["flatten"]:
         fail(f"C12 flatten is '{j['observation']['flatten']}', not per-term")
@@ -208,19 +232,21 @@ def main():
         return 1
 
     if args.check:
-        print("[ok] 12/12 consistency checks pass")
+        print("[ok] 13/13 consistency checks pass")
         return 0
 
-    md = render(j, terms, hist, frame, rate, slots, art_names, art_def, a2a, act_names)
+    md = render(j, terms, hist, frame, rate, slots, art_names, art_def, a2a,
+                act_names, g, hkp, hkd, htau)
     if args.out:
         pathlib.Path(args.out).write_text(md)
-        print(f"[ok] 12/12 checks pass -> {args.out}")
+        print(f"[ok] 13/13 checks pass -> {args.out}")
     else:
         sys.stdout.write(md)
     return 0
 
 
-def render(j, terms, hist, frame, rate, slots, art_names, art_def, a2a, act_names):
+def render(j, terms, hist, frame, rate, slots, art_names, art_def, a2a,
+           act_names, g, hkp, hkd, htau):
     L = []
     w = L.append
     w("# W06 · 观测装配一致性对照表\n")
@@ -234,7 +260,8 @@ def render(j, terms, hist, frame, rate, slots, art_names, art_def, a2a, act_name
     w("| 1 | `deploy/interface/policy_interface.json` | 训练端真值，由 `dump_interface.py` 导出 |")
     w("| 2 | `r1_hw_bridge/include/r1_hw_bridge/joint_map.hpp` | bridge 从 35 槽里取哪 26 个、减哪些默认角 |")
     w("| 3 | `r1_policy_runner/config/policy_interface.yaml` | 策略节点的历史长度、动作缩放、默认角 |")
-    w("| 4 | `r1_hw_bridge/config/bridge.yaml` | bridge 实际跑的频率 |")
+    w("| 4 | `r1_hw_bridge/config/bridge.yaml` | bridge 实际跑的频率与增益缩放 |")
+    w("| 5 | `deploy/interface/actuator_gains.json` | **训练时的每关节 PD 增益** |")
     w("")
     w("---\n")
     w("## 1 · 逐项对照\n")
@@ -268,19 +295,36 @@ def render(j, terms, hist, frame, rate, slots, art_names, art_def, a2a, act_name
     w("")
     w("---\n")
     w("## 2 · 26 关节：槽位 / 默认角 / 动作索引\n")
-    w("| art | 关节 | hg 槽 | 默认角 | action | 证据 |")
-    w("|---:|---|---:|---:|---:|---|")
+    w("| art | 关节 | hg 槽 | 默认角 | kp | kd | τ上限 | action | 证据 |")
+    w("|---:|---|---:|---:|---:|---:|---:|---:|---|")
     rev = {art: a for a, art in enumerate(a2a)}
     for i, name in enumerate(art_names):
         a = rev.get(i)
         ev = "**实测**" if name in MEASURED_ANCHORS else "enum + 槽集"
         w(f"| {i} | `{name}` | {slots[i]} | {art_def[i]:+.3f} | "
+          f"{hkp[i]:.0f} | {hkd[i]:.0f} | {htau[i]:.0f} | "
           f"{a if a is not None else '—'} | {ev} |")
     w("")
     w(f"槽集 = 普查实测 LIVE 集，{len(MEASURED_ANCHORS)}/{len(art_names)} 条有直接掰动证据，"
       f"其余由厂商 enum 加这条全局集合等式覆盖。\n")
     w("---\n")
-    w("## 3 · 这张表**不**覆盖什么\n")
+    w("## 3 · PD 增益：六组，不是一个数\n")
+    w("| 组 | kp | kd | τ上限 | 关节数 |")
+    w("|---|---:|---:|---:|---:|")
+    for gname, gv in g["groups"].items():
+        n = sum(1 for x in g["group"] if x == gname)
+        w(f"| {gname} | {gv['stiffness']:.0f} | {gv['damping']:.1f} | "
+          f"{gv['effort_limit']:.0f} | {n} |")
+    w("")
+    w("bridge 发的是 `kp_scale × kKp[j]` 和 `kd_scale × kKd[j]`，**两个缩放默认 1.0，")
+    w("也就是说默认值就是训练时的控制器**。爬坡爬的是 `kp_scale`，终点明确落在 1.0。\n")
+    w("> **2026-09-04 实测的教训**：第一版 bridge 用一个全局 kp/kd 发给全部 24 个关节。")
+    w("> 那不是六组增益的简化，是另一个控制器。真机表现：`kd=1.0` 时腿完全没有阻尼感")
+    w("> （legs 组要 kp 100 / kd 2），把 kd 抬到 3.0 之后头部高频振动")
+    w("> （head 组要 kd 1.0，被喂了 3 倍）。**而当时的一致性门禁抓不到它——")
+    w("> 增益根本没被导出过。**\n")
+    w("---\n")
+    w("## 4 · 这张表**不**覆盖什么\n")
     w("门禁比对的是**静态常量**。以下三件事只有在机器人上跑起来才能验：\n")
     w("- bridge 有没有照着 `kJointSlot` 取数（表自洽 ≠ 代码照做）→ 上机清单阶段 3.3")
     w("- 默认角有没有真的减掉 → 阶段 3.4")

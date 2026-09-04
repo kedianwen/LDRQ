@@ -18,8 +18,8 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument("iface", default_value="eth10"),
         DeclareLaunchArgument("enable_output", default_value="false"),
-        DeclareLaunchArgument("kp", default_value="40.0"),
-        DeclareLaunchArgument("kd", default_value="1.0"),
+        DeclareLaunchArgument("kp_scale", default_value="1.0"),
+        DeclareLaunchArgument("kd_scale", default_value="1.0"),
         DeclareLaunchArgument("cmd_rate_hz", default_value="500.0"),
     ]
     return LaunchDescription(args + [
@@ -31,8 +31,8 @@ def generate_launch_description():
             parameters=[{
                 "iface": LaunchConfiguration("iface"),
                 "enable_output": LaunchConfiguration("enable_output"),
-                "kp": LaunchConfiguration("kp"),
-                "kd": LaunchConfiguration("kd"),
+                "kp_scale": LaunchConfiguration("kp_scale"),
+                "kd_scale": LaunchConfiguration("kd_scale"),
                 "cmd_rate_hz": LaunchConfiguration("cmd_rate_hz"),
             }],
             # The policy side needs the matching half of this wiring

@@ -67,6 +67,18 @@ def load_defaults():
     return spec["articulation"]["default_joint_pos"]
 
 
+def load_gains():
+    """Per-joint PD gains as trained, from dump_actuator_gains.py.
+
+    Training used six actuator groups spanning kp 20..100 and kd 1..2. The first
+    bridge shipped one global kp/kd for all 24 joints, which on the robot meant
+    legs with no perceptible damping and a head oscillating at high frequency.
+    Gains are part of the contract; they get generated like the default pose."""
+    import json
+    g = json.loads((HERE.parents[1] / "interface" / "actuator_gains.json").read_text())
+    return g
+
+
 def load_measured(paths):
     """Later files win, so a re-test supersedes the run it corrects."""
     out = {}
@@ -119,6 +131,30 @@ def emit_header(joints, predicted, measured, out):
               f"inline constexpr std::array<float, kNumJoints> kDefaultPos = {{"]
     for (art, name, _), d in zip(joints, load_defaults()):
         lines.append(f"  {d:+.6f}f,  // {art:>2} {name}")
+    lines += ["};", ""]
+
+    # Six actuator groups in training, kp 20..100 and kd 1..2. A single global
+    # gain is not a simplification of this -- it is a different controller.
+    gains = load_gains()
+    if gains["joint_names"] != [n for _, n, _ in joints]:
+        raise SystemExit("[fail] actuator_gains.json joint order != joints.tsv")
+    lines += ["// Per-joint PD gains AS TRAINED (see actuator_gains.json).",
+              "// The bridge sends kp_scale * kKp[j] and kd_scale * kKd[j];",
+              "// both scales default to 1.0, so the default is the trained controller.",
+              f"inline constexpr std::array<float, kNumJoints> kKp = {{"]
+    for (art, name, _), v, grp in zip(joints, gains["stiffness"], gains["group"]):
+        lines.append(f"  {v:>7.2f}f,  // {art:>2} {name} [{grp}]")
+    lines += ["};", "",
+              f"inline constexpr std::array<float, kNumJoints> kKd = {{"]
+    for (art, name, _), v, grp in zip(joints, gains["damping"], gains["group"]):
+        lines.append(f"  {v:>7.2f}f,  // {art:>2} {name} [{grp}]")
+    lines += ["};", "",
+              "// Torque rating per joint (N*m). Not sent -- the PD loop runs in",
+              "// firmware -- but kept here so a gain change can be sanity-checked",
+              "// against what the hardware is rated for.",
+              f"inline constexpr std::array<float, kNumJoints> kTauLimit = {{"]
+    for (art, name, _), v in zip(joints, gains["effort_limit"]):
+        lines.append(f"  {v:>7.2f}f,  // {art:>2} {name}")
     lines += ["};", ""]
 
     # The policy emits 24 actions; they address 24 of the 26 articulation joints
