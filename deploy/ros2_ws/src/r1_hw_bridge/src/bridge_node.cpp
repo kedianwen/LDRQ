@@ -35,6 +35,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <chrono>
@@ -244,10 +245,59 @@ private:
         return;
       }
     }
+    const auto now = steady_clock::now();
+    RecordLoopLag(now);
     std::lock_guard<std::mutex> lock(target_mutex_);
     std::copy(m.data.begin(), m.data.end(), target_.begin());
-    last_target_time_ = steady_clock::now();
+    last_target_time_ = now;
     have_target_ = true;
+  }
+
+  // Setpoint lag: from publishing an observation to having the setpoint it
+  // produced. This is exactly the quantity training randomized -- W04's
+  // DelayedJointPositionAction lags the setpoint by {0,1} control steps, i.e.
+  // {0, 20} ms at 50 Hz (tasks/r1_flat/mdp.py) -- so it is the number to
+  // compare against, and it is directly measurable here rather than inferred
+  // by cross-correlating command against motion. The actuator's own response
+  // lag is a separate quantity and is NOT what that randomization models.
+  //
+  // Assumes the policy emits one target per obs frame, true in steady state at
+  // 50 Hz. A dropped frame shows up as a sample one control period too long,
+  // which is visible as a bimodal spread rather than a quietly wrong median.
+  void RecordLoopLag(steady_clock::time_point now)
+  {
+    const int64_t pub_ns = obs_pub_ns_.load();
+    if (pub_ns == 0) {return;}
+    const double ms =
+      duration<double, std::milli>(now - steady_clock::time_point(steady_clock::duration(pub_ns)))
+      .count();
+    // Negative or absurd means the pairing is not 1:1 (startup, or a burst);
+    // drop rather than poison the statistic.
+    if (ms < 0.0 || ms > 1000.0) {return;}
+    std::lock_guard<std::mutex> lock(lag_mutex_);
+    if (lag_samples_.size() < kLagSamples) {
+      lag_samples_.push_back(ms);
+    } else {
+      lag_samples_[lag_next_] = ms;
+      lag_next_ = (lag_next_ + 1) % kLagSamples;
+    }
+  }
+
+  // p50/p95/max over the window, or all zeros if nothing has been paired yet.
+  std::array<double, 3> LoopLag()
+  {
+    std::vector<double> v;
+    {
+      std::lock_guard<std::mutex> lock(lag_mutex_);
+      v = lag_samples_;
+    }
+    if (v.empty()) {return {0.0, 0.0, 0.0};}
+    std::sort(v.begin(), v.end());
+    auto at = [&v](double q) {
+        return v[std::min(v.size() - 1,
+          static_cast<std::size_t>(q * static_cast<double>(v.size())))];
+      };
+    return {at(0.50), at(0.95), v.back()};
   }
 
   void OnAction(const std_msgs::msg::Float32MultiArray & m)
@@ -350,6 +400,10 @@ private:
 
     obs_msg_.data.assign(frame_.begin(), frame_.end());
     obs_pub_->publish(obs_msg_);
+    // Stamped so OnTarget can measure the loop lag this obs frame incurs. This
+    // runs on the SDK's DDS thread while OnTarget runs on the ROS executor, so
+    // the handoff is an atomic, not the target_mutex_.
+    obs_pub_ns_.store(steady_clock::now().time_since_epoch().count());
 
     dbg_jpos_pub_->publish(Slice(jpos0, kNumJoints));
     dbg_jvel_pub_->publish(Slice(jvel0, kNumJoints));
@@ -371,6 +425,17 @@ private:
 
   void TrackRate(steady_clock::time_point now)
   {
+    // Start the first window at the first frame, not at construction. DDS
+    // discovery takes ~100-400 ms, and counting that dead time as missed
+    // frames made every single start-up log "observation rate 44.6 Hz below
+    // 45.0 Hz (1/3)". A degrade counter that cries wolf on every boot is worse
+    // than no counter: it trains you to read past the one that matters.
+    if (!rate_primed_) {
+      rate_primed_ = true;
+      rate_window_ = now;
+      obs_count_ = 0;
+      return;
+    }
     ++obs_count_;
     const double dt = duration<double>(now - rate_window_).count();
     if (dt < 1.0) {return;}
@@ -531,12 +596,26 @@ private:
   {
     PublishStatus();
     if (++status_ticks_ % 5 != 0) {return;}
+    const auto lag = LoopLag();
+    const double step_ms = 1000.0 / control_rate_hz_;
     RCLCPP_INFO(get_logger(),
       "%s | obs %.1f Hz (want %.0f) | cmd %.1f Hz (want %.0f) | output=%s | "
-      "kp_scale=%.2f | crc_fail=%zu",
+      "kp_scale=%.2f | crc_fail=%zu | setpoint lag p50=%.1f p95=%.1f max=%.1f ms "
+      "(%.2f steps; trained 0-%.0f)",
       StateName(state_.load()), obs_hz_.load(), control_rate_hz_,
       cmd_hz_.load(), cmd_rate_hz_,
-      io_->output_enabled() ? "ON" : "off", kp_scale_, io_->crc_failures());
+      io_->output_enabled() ? "ON" : "off", kp_scale_, io_->crc_failures(),
+      lag[0], lag[1], lag[2], lag[0] / step_ms, step_ms);
+    // Training drew the lag from {0, 1} control steps. Past one step the
+    // deployed loop is outside the distribution the policy was trained on, and
+    // that is a W07 gap-mitigation input, not a crash -- so say it, once every
+    // status cycle, rather than degrading on it.
+    if (lag[1] > step_ms) {
+      RCLCPP_WARN(get_logger(),
+        "setpoint lag p95=%.1f ms exceeds the trained range (0-%.0f ms = 0-1 "
+        "control steps): the policy is running outside its trained lag "
+        "distribution", lag[1], step_ms);
+    }
   }
 
   void PublishStatus()
@@ -585,6 +664,12 @@ private:
   std::thread cmd_thread_;
   uint64_t cmd_count_ = 0, obs_count_ = 0, cmd_window_count_ = 0, status_ticks_ = 0;
   int slow_windows_ = 0;
+  bool rate_primed_ = false;
+  static constexpr std::size_t kLagSamples = 512;
+  std::atomic<int64_t> obs_pub_ns_{0};
+  std::mutex lag_mutex_;
+  std::vector<double> lag_samples_;
+  std::size_t lag_next_ = 0;
   steady_clock::time_point rate_window_ = steady_clock::now();
   steady_clock::time_point cmd_window_ = steady_clock::now();
   std::atomic<double> obs_hz_{0.0}, cmd_hz_{0.0};
