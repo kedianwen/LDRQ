@@ -120,7 +120,8 @@ int main(int argc, char ** argv)
   }
 
   std::cout << "engine " << policy->input_dim() << " -> " << policy->output_dim()
-            << " | fixture " << fx.n << " samples\n";
+            << " | fixture " << fx.n << " samples\n"
+            << "plan " << r1_policy_runner::PlanFingerprint(plan) << "\n";
 
   // -- numerical parity ------------------------------------------------------
   std::vector<float> got(fx.out_dim);
@@ -185,5 +186,13 @@ int main(int argc, char ** argv)
   std::cout << (pass ? "PARITY PASS" : "PARITY FAIL")
             << std::scientific << std::setprecision(1)
             << " (tolerance " << tol << ")\n";
+  if (!pass) {
+    std::cout
+      << "\nThis certifies one file, not the ONNX. If max_abs is around 1e-2 the\n"
+      << "likely cause is TF32: TensorRT permits it by default, it rounds GEMM\n"
+      << "inputs to a 10-bit mantissa, and whether a TF32 kernel wins is decided\n"
+      << "by build-time timing -- so the same command can pass once and fail next\n"
+      << "time. Rebuild with a build of r1_build_engine that clears kTF32.\n";
+  }
   return pass ? 0 : 1;
 }

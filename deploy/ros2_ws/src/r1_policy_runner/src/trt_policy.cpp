@@ -2,9 +2,11 @@
 
 #include <NvOnnxParser.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -74,10 +76,31 @@ void TrtLogger::log(Severity severity, const char * msg) noexcept
 // Engine construction
 // ---------------------------------------------------------------------------
 
+std::string PlanFingerprint(const std::string & plan_path)
+{
+  std::ifstream in(plan_path, std::ios::binary);
+  if (!in) {return "unreadable";}
+  std::uint64_t h = 14695981039346656037ULL;     // FNV-1a 64 offset basis
+  std::uint64_t n = 0;
+  char buf[64 * 1024];
+  while (in.read(buf, sizeof(buf)) || in.gcount() > 0) {
+    const std::streamsize got = in.gcount();
+    n += static_cast<std::uint64_t>(got);
+    for (std::streamsize i = 0; i < got; ++i) {
+      h ^= static_cast<unsigned char>(buf[i]);
+      h *= 1099511628211ULL;
+    }
+  }
+  std::ostringstream os;
+  os << n << "B fnv1a=0x" << std::hex << std::setw(16) << std::setfill('0') << h;
+  return os.str();
+}
+
 bool BuildEngineFromOnnx(
   const std::string & onnx_path,
   const std::string & plan_path,
   bool fp16,
+  bool allow_tf32,
   std::size_t workspace_mb,
   std::string * error)
 {
@@ -130,6 +153,15 @@ bool BuildEngineFromOnnx(
     } else {
       config->setFlag(nvinfer1::BuilderFlag::kFP16);
     }
+  }
+
+  // TensorRT enables kTF32 by default. TF32 rounds GEMM inputs to a 10-bit
+  // mantissa -- the same mantissa width as FP16 -- so a nominally FP32 engine
+  // can be off by ~1e-2, and because the flag merely *permits* TF32 the choice
+  // is made by build-time kernel timing and is not stable across rebuilds.
+  // Clear it unless explicitly asked for, so "fp32" means fp32.
+  if (!allow_tf32) {
+    config->clearFlag(nvinfer1::BuilderFlag::kTF32);
   }
 
 #if R1_TRT10

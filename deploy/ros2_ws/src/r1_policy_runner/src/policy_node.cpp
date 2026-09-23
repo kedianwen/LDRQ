@@ -132,6 +132,14 @@ public:
       policy_->info().output_name.c_str(), policy_->output_dim(),
       assembler_->terms().size(), history, assembler_->obs_dim());
 
+    // Engine builds are not reproducible (tactic selection is remeasured, and
+    // TF32 can silently win a rebuild), so a parity PASS certifies one file.
+    // Log its fingerprint: this is how you prove the engine that passed the
+    // gate is the engine now driving the motors.
+    RCLCPP_INFO(
+      get_logger(), "engine plan %s",
+      r1_policy_runner::PlanFingerprint(engine_path).c_str());
+
     if (mode == "subscribe") {
       obs_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
         "~/obs", qos,

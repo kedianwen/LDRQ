@@ -55,6 +55,13 @@ struct EngineInfo
 /// @param onnx_path   input ONNX model
 /// @param plan_path   output serialised engine
 /// @param fp16        enable FP16 kernels (falls back to FP32 where unsupported)
+/// @param allow_tf32  leave TensorRT's default TF32 permission in place. TF32 is
+///        ENABLED BY DEFAULT by TensorRT and rounds GEMM inputs to a 10-bit
+///        mantissa -- FP16-level precision under an "fp32" label. Worse, the
+///        flag only *allows* TF32: whether a TF32 kernel actually wins is
+///        decided by timing kernels at build time, so two builds of the same
+///        ONNX on the same device can differ numerically by ~1e-2. Pass false
+///        (the caller default) for anything a parity gate must certify.
 /// @param workspace_mb scratch memory ceiling for tactic selection
 /// @param error       populated on failure
 /// @return true on success
@@ -62,8 +69,17 @@ bool BuildEngineFromOnnx(
   const std::string & onnx_path,
   const std::string & plan_path,
   bool fp16,
+  bool allow_tf32,
   std::size_t workspace_mb,
   std::string * error);
+
+/// Identifies a plan file by content: "<bytes>B fnv1a=0x...".
+///
+/// Tactic selection is remeasured on every build, so "parity passed" certifies
+/// one specific file, not the ONNX it came from. Print this at build, at parity
+/// check and at node start-up so the engine that passed can be shown to be the
+/// engine that ran. Returns "unreadable" if the file cannot be opened.
+std::string PlanFingerprint(const std::string & plan_path);
 
 /// Loads a serialised engine and runs it, one observation at a time.
 class TrtPolicy
