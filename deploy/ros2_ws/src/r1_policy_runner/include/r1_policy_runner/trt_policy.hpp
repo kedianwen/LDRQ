@@ -46,31 +46,66 @@ struct EngineInfo
   bool fp16 = false;
 };
 
+/// How to build an engine.
+///
+/// A struct rather than a parameter list because the precision flags interact
+/// and one combination is a trap: `int8` with no `calib_data` builds an engine
+/// whose activation scales came from TensorRT's fallback, not from the
+/// deployment distribution. That engine loads, runs, and is not the thing the
+/// acceptance report claims to measure -- so the builder refuses it.
+struct BuildOptions
+{
+  /// Permit FP16 kernels. NOTE "permit", not "require": on this 73k-parameter
+  /// MLP at batch 1 the loop is kernel-launch bound, so TensorRT times FP32
+  /// kernels as faster and keeps them. Measured on the Orin 2026-09-24: the
+  /// FP16 plan's error was 1.717e-05, the same order as FP32, because almost
+  /// nothing ran in FP16. Do not read this flag as "the engine is half
+  /// precision" -- read the parity output.
+  bool fp16 = false;
+
+  /// Permit INT8 kernels. Requires @ref calib_data (see above).
+  bool int8 = false;
+
+  /// Leave TensorRT's default TF32 permission in place. TF32 is ENABLED BY
+  /// DEFAULT by TensorRT and rounds GEMM inputs to a 10-bit mantissa --
+  /// FP16-level precision under an "fp32" label. Worse, the flag only *allows*
+  /// TF32: whether a TF32 kernel actually wins is decided by timing kernels at
+  /// build time, so two builds of the same ONNX on the same device can differ
+  /// numerically by ~1e-2. Leave false for anything a parity gate must certify.
+  bool allow_tf32 = false;
+
+  /// Scratch memory ceiling for tactic selection, MB.
+  std::size_t workspace_mb = 256;
+
+  /// Observation vectors for INT8 calibration: "R1CB" (tools/record_calib_obs.py,
+  /// recorded off the running robot) or "R1FX" (the parity fixture, whose inputs
+  /// are synthetic Gaussians). Both load; only R1CB is a defensible calibration
+  /// set, because activation ranges are what INT8 quantises and synthetic noise
+  /// visits activations the policy never sees. The builder says which it got.
+  std::string calib_data;
+
+  /// Where to cache TensorRT's calibration table. If the file exists it is
+  /// REUSED and the calibration pass is skipped entirely -- so a stale cache
+  /// makes a new calibration set look like it had no effect. Delete it when
+  /// calib_data changes; the builder prints which of the two paths it took.
+  std::string calib_cache;
+};
+
 /// Builds a serialised engine from an ONNX file.
 ///
 /// Engines are tied to the TensorRT version, GPU architecture and driver they
 /// were built on -- a plan produced on this dev box will NOT load on the
 /// robot's Orin NX. Ship the ONNX and run this on the target.
 ///
-/// @param onnx_path   input ONNX model
-/// @param plan_path   output serialised engine
-/// @param fp16        enable FP16 kernels (falls back to FP32 where unsupported)
-/// @param allow_tf32  leave TensorRT's default TF32 permission in place. TF32 is
-///        ENABLED BY DEFAULT by TensorRT and rounds GEMM inputs to a 10-bit
-///        mantissa -- FP16-level precision under an "fp32" label. Worse, the
-///        flag only *allows* TF32: whether a TF32 kernel actually wins is
-///        decided by timing kernels at build time, so two builds of the same
-///        ONNX on the same device can differ numerically by ~1e-2. Pass false
-///        (the caller default) for anything a parity gate must certify.
-/// @param workspace_mb scratch memory ceiling for tactic selection
-/// @param error       populated on failure
+/// @param onnx_path input ONNX model
+/// @param plan_path output serialised engine
+/// @param opt       precision and calibration settings
+/// @param error     populated on failure
 /// @return true on success
 bool BuildEngineFromOnnx(
   const std::string & onnx_path,
   const std::string & plan_path,
-  bool fp16,
-  bool allow_tf32,
-  std::size_t workspace_mb,
+  const BuildOptions & opt,
   std::string * error);
 
 /// Identifies a plan file by content: "<bytes>B fnv1a=0x...".

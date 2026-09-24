@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iostream>
+#include <iterator>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -56,6 +58,126 @@ std::string cudaErr(const char * what, cudaError_t e)
   return os.str();
 }
 
+/// Reads observation vectors out of an R1CB or R1FX file.
+///
+/// R1CB: "R1CB" | u32 version=1 | u32 n | u32 dim | f32 data[n*dim]
+/// R1FX: "R1FX" | u32 version=1 | u32 n | u32 in_dim | u32 out_dim
+///                | f32 inputs[n*in_dim] | f32 outputs[n*out_dim]
+///
+/// Both carry the inputs first, so one reader covers them; the R1FX reference
+/// outputs are simply not read. @p synthetic reports which one it was, because
+/// that distinction is the whole difference between a calibration set and a
+/// decoration.
+bool LoadObsFile(
+  const std::string & path, std::vector<float> * data, uint32_t * n, uint32_t * dim,
+  bool * synthetic, std::string * err)
+{
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {*err = "cannot open " + path; return false;}
+
+  char magic[4] = {0, 0, 0, 0};
+  uint32_t version = 0;
+  in.read(magic, 4);
+  in.read(reinterpret_cast<char *>(&version), 4);
+  const std::string tag(magic, 4);
+  if (tag != "R1CB" && tag != "R1FX") {
+    *err = path + ": magic is '" + tag + "', expected R1CB (record_calib_obs.py) or R1FX (fixture)";
+    return false;
+  }
+  if (version != 1) {*err = path + ": unsupported version"; return false;}
+  *synthetic = (tag == "R1FX");
+
+  in.read(reinterpret_cast<char *>(n), 4);
+  in.read(reinterpret_cast<char *>(dim), 4);
+  if (*synthetic) {
+    uint32_t out_dim = 0;
+    in.read(reinterpret_cast<char *>(&out_dim), 4);
+  }
+  if (!in) {*err = path + ": truncated header"; return false;}
+  if (*n == 0 || *dim == 0) {*err = path + ": empty"; return false;}
+
+  data->resize(static_cast<std::size_t>(*n) * *dim);
+  in.read(reinterpret_cast<char *>(data->data()),
+    static_cast<std::streamsize>(data->size() * sizeof(float)));
+  if (!in) {*err = path + ": truncated payload"; return false;}
+  return true;
+}
+
+/// Feeds recorded observations to TensorRT's INT8 calibration pass.
+///
+/// Entropy calibration 2 rather than MinMax: MinMax pins the scale to the most
+/// extreme activation in the set, so one outlier frame costs resolution
+/// everywhere else, and a 30 s robot recording will contain outlier frames.
+///
+/// Batch is 1 because the engine is batch 1. That makes calibration slow in
+/// wall-clock terms and exactly representative in distribution terms, which is
+/// the trade worth making for a few thousand samples.
+class ObsCalibrator : public nvinfer1::IInt8EntropyCalibrator2
+{
+public:
+  ObsCalibrator(std::vector<float> data, uint32_t n, uint32_t dim, std::string cache_path)
+  : data_(std::move(data)), n_(n), dim_(dim), cache_path_(std::move(cache_path))
+  {
+    bytes_ = static_cast<std::size_t>(dim_) * sizeof(float);
+    if (cudaMalloc(&d_buf_, bytes_) != cudaSuccess) {d_buf_ = nullptr;}
+    if (!cache_path_.empty()) {
+      std::ifstream in(cache_path_, std::ios::binary);
+      if (in) {
+        cache_.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+      }
+    }
+  }
+
+  ~ObsCalibrator() override
+  {
+    if (d_buf_) {cudaFree(d_buf_);}
+  }
+
+  bool ok() const {return d_buf_ != nullptr;}
+  bool cache_was_reused() const {return reused_;}
+
+  int32_t getBatchSize() const noexcept override {return 1;}
+
+  bool getBatch(void * bindings[], char const * names[], int32_t nbBindings) noexcept override
+  {
+    (void)names;
+    if (cursor_ >= n_ || nbBindings < 1 || !d_buf_) {return false;}
+    const float * src = data_.data() + static_cast<std::size_t>(cursor_) * dim_;
+    if (cudaMemcpy(d_buf_, src, bytes_, cudaMemcpyHostToDevice) != cudaSuccess) {return false;}
+    bindings[0] = d_buf_;
+    ++cursor_;
+    return true;
+  }
+
+  void const * readCalibrationCache(std::size_t & length) noexcept override
+  {
+    if (cache_.empty()) {length = 0; return nullptr;}
+    // TensorRT calls this before the first getBatch. A hit here means the whole
+    // calibration pass is skipped, which is the single most misleading thing
+    // this class can do silently, so record it for the caller to print.
+    reused_ = true;
+    length = cache_.size();
+    return cache_.data();
+  }
+
+  void writeCalibrationCache(void const * ptr, std::size_t length) noexcept override
+  {
+    if (cache_path_.empty()) {return;}
+    std::ofstream out(cache_path_, std::ios::binary);
+    if (!out) {return;}
+    out.write(static_cast<const char *>(ptr), static_cast<std::streamsize>(length));
+  }
+
+private:
+  std::vector<float> data_;
+  uint32_t n_ = 0, dim_ = 0, cursor_ = 0;
+  std::size_t bytes_ = 0;
+  void * d_buf_ = nullptr;
+  std::string cache_path_;
+  std::vector<char> cache_;
+  bool reused_ = false;
+};
+
 }  // namespace
 
 void TrtLogger::log(Severity severity, const char * msg) noexcept
@@ -99,9 +221,7 @@ std::string PlanFingerprint(const std::string & plan_path)
 bool BuildEngineFromOnnx(
   const std::string & onnx_path,
   const std::string & plan_path,
-  bool fp16,
-  bool allow_tf32,
-  std::size_t workspace_mb,
+  const BuildOptions & opt,
   std::string * error)
 {
   auto fail = [error](const std::string & m) {
@@ -142,16 +262,77 @@ bool BuildEngineFromOnnx(
 
 #if R1_TRT10
   config->setMemoryPoolLimit(
-    nvinfer1::MemoryPoolType::kWORKSPACE, workspace_mb * 1024ULL * 1024ULL);
+    nvinfer1::MemoryPoolType::kWORKSPACE, opt.workspace_mb * 1024ULL * 1024ULL);
 #else
-  config->setMaxWorkspaceSize(workspace_mb * 1024ULL * 1024ULL);
+  config->setMaxWorkspaceSize(opt.workspace_mb * 1024ULL * 1024ULL);
 #endif
 
-  if (fp16) {
+  if (opt.fp16) {
     if (!builder->platformHasFastFp16()) {
       std::fprintf(stderr, "[warn] platform has no fast FP16; building FP32 instead\n");
     } else {
       config->setFlag(nvinfer1::BuilderFlag::kFP16);
+    }
+  }
+
+  // -- INT8 ------------------------------------------------------------------
+  // Held in scope until buildSerializedNetwork returns: TensorRT calls back into
+  // the calibrator during the build, not before it.
+  std::unique_ptr<ObsCalibrator> calibrator;
+  if (opt.int8) {
+    if (!builder->platformHasFastInt8()) {
+      return fail("platform reports no fast INT8; refusing to build an INT8 plan here");
+    }
+    if (opt.calib_data.empty()) {
+      // Without a calibrator TensorRT still produces an INT8 engine, using
+      // whatever dynamic ranges it can infer. It loads and runs. Its activation
+      // scales are then not a property of the deployment distribution, and the
+      // acceptance report would be measuring something it does not name.
+      return fail(
+        "--int8 needs --calib <R1CB|R1FX>. An uncalibrated INT8 engine builds "
+        "and runs, which is exactly why it must not be allowed: its scales come "
+        "from nowhere. Record real observations with tools/record_calib_obs.py.");
+    }
+
+    std::vector<float> calib_data;
+    uint32_t n = 0, dim = 0;
+    bool synthetic = false;
+    std::string load_err;
+    if (!LoadObsFile(opt.calib_data, &calib_data, &n, &dim, &synthetic, &load_err)) {
+      return fail("calibration data: " + load_err);
+    }
+
+    const int64_t net_in = volumeOf(network->getInput(0)->getDimensions());
+    if (net_in > 0 && static_cast<int64_t>(dim) != net_in) {
+      std::ostringstream os;
+      os << "calibration data is " << dim << "-dim but the network takes " << net_in;
+      return fail(os.str());
+    }
+
+    std::cout << "int8: " << n << " calibration samples x " << dim << " from "
+              << opt.calib_data << (synthetic ? "  [SYNTHETIC]" : "  [recorded]") << "\n";
+    if (synthetic) {
+      // Not an error: a synthetic calibration is the right way to smoke-test
+      // this path on a dev box. It is only wrong to report its numbers.
+      std::cout
+        << "       ^ R1FX inputs are Gaussian noise, not robot observations. INT8\n"
+        << "         quantises ACTIVATION ranges, and noise drives activations the\n"
+        << "         policy never reaches -- so this engine is a build smoke test,\n"
+        << "         NOT the subject of the INT8 acceptance report.\n";
+    }
+    if (n < 256) {
+      std::cout << "       ^ only " << n << " samples; entropy calibration wants a few\n"
+                << "         hundred at minimum (>= 1000 preferred = 20 s at 50 Hz)\n";
+    }
+
+    calibrator = std::make_unique<ObsCalibrator>(
+      std::move(calib_data), n, dim, opt.calib_cache);
+    if (!calibrator->ok()) {return fail("cudaMalloc for the calibration buffer failed");}
+
+    config->setFlag(nvinfer1::BuilderFlag::kINT8);
+    config->setInt8Calibrator(calibrator.get());
+    if (!opt.calib_cache.empty()) {
+      std::cout << "int8: calibration cache " << opt.calib_cache << "\n";
     }
   }
 
@@ -160,7 +341,7 @@ bool BuildEngineFromOnnx(
   // can be off by ~1e-2, and because the flag merely *permits* TF32 the choice
   // is made by build-time kernel timing and is not stable across rebuilds.
   // Clear it unless explicitly asked for, so "fp32" means fp32.
-  if (!allow_tf32) {
+  if (!opt.allow_tf32) {
     config->clearFlag(nvinfer1::BuilderFlag::kTF32);
   }
 
@@ -170,6 +351,15 @@ bool BuildEngineFromOnnx(
   TrtPtr<nvinfer1::IHostMemory> plan{builder->buildSerializedNetwork(*network, *config)};
 #endif
   if (!plan) {return fail("buildSerializedNetwork returned null");}
+
+  if (calibrator && calibrator->cache_was_reused()) {
+    // The build read an existing table and never looked at calib_data. Silent,
+    // this makes a fresh calibration set look like it changed nothing.
+    std::cout
+      << "int8: REUSED the existing calibration cache -- the calibration pass did\n"
+      << "      NOT run and " << opt.calib_data << " was not used. Delete\n"
+      << "      " << opt.calib_cache << " to recalibrate.\n";
+  }
 
   std::ofstream out(plan_path, std::ios::binary);
   if (!out) {return fail("cannot open " + plan_path + " for writing");}
