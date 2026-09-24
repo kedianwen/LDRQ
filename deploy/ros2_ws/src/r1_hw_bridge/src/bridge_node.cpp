@@ -129,6 +129,7 @@ public:
     dbg_jpos_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/joint_pos", qos);
     dbg_jvel_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/joint_vel", qos);
     dbg_imu_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/imu", qos);
+    dbg_tau_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/joint_tau", qos);
     dbg_cmd_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/cmd_debug", qos);
 
     target_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
@@ -413,6 +414,21 @@ private:
                     grav[0], grav[1], grav[2]};
     dbg_imu_pub_->publish(imu_msg);
 
+    // Measured joint torque, straight out of LowState's tau_est. It is not part
+    // of the observation -- the policy never sees it -- but it is the only
+    // DIRECT measure of how hard the hardware is working. W07 had to infer
+    // torque as kKp * tracking_error to rule out saturation on the hip rolls,
+    // and W08's INT8 acceptance gates on "torque stays inside its rating",
+    // which should not be computed from the tracking error it is meant to
+    // explain. Some firmware leaves tau_est at zero; a reader that sees all
+    // zeros should say so rather than report 0 N*m as a measurement.
+    std_msgs::msg::Float32MultiArray tau_msg;
+    tau_msg.data.resize(kNumJoints);
+    for (std::size_t j = 0; j < kNumJoints; ++j) {
+      tau_msg.data[j] = s.motor[kJointSlot[j]].tau;
+    }
+    dbg_tau_pub_->publish(tau_msg);
+
     TrackRate(now);
   }
 
@@ -675,7 +691,7 @@ private:
   std::atomic<double> obs_hz_{0.0}, cmd_hz_{0.0};
 
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr obs_pub_,
-    dbg_jpos_pub_, dbg_jvel_pub_, dbg_imu_pub_, dbg_cmd_pub_;
+    dbg_jpos_pub_, dbg_jvel_pub_, dbg_imu_pub_, dbg_cmd_pub_, dbg_tau_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr reset_pub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr
