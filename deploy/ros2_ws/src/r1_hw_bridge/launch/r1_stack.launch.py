@@ -39,6 +39,12 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_output", default_value="false"),
         DeclareLaunchArgument("kp_scale", default_value="1.0"),
         DeclareLaunchArgument("kd_scale", default_value="1.0"),
+        # Overridable so a degrade can be provoked on demand: set it above the
+        # real observation rate and the guard must trip. Without it on the
+        # command line the only way to exercise the rate guard is to edit
+        # bridge.yaml, and a fault injection you forget to revert is worse than
+        # one you cannot run.
+        DeclareLaunchArgument("min_control_rate_hz", default_value="45.0"),
     ]
 
     bridge = Node(
@@ -49,6 +55,7 @@ def generate_launch_description():
             "enable_output": LaunchConfiguration("enable_output"),
             "kp_scale": LaunchConfiguration("kp_scale"),
             "kd_scale": LaunchConfiguration("kd_scale"),
+            "min_control_rate_hz": LaunchConfiguration("min_control_rate_hz"),
         }],
         remappings=[
             ("joint_target", "/r1_policy_node/joint_target"),
