@@ -19,6 +19,25 @@
 
 set -uo pipefail
 
+# Count the processes that really ARE <name>, not merely mention it.
+#
+# Two steps because neither alone works. FIND with `pgrep -f`: comm is truncated
+# to 15 characters, so `pgrep r1_hw_bridge_node` finds nothing while it runs.
+# CONFIRM with comm: -f also matches any process carrying the name in its own
+# argv -- a shell invoked with a command that mentions it, for one. Excluding $$
+# and $PPID is not enough, since the offender can be a grandparent. A shell that
+# only mentions the name has comm=bash; the node has comm equal to the name cut
+# to 15 characters. This project has now been bitten by the -f false positive in
+# three separate tools, which is why it is one function.
+count_real() {
+  local name=$1 want=${1:0:15} pid n=0
+  for pid in $(pgrep -f "$name" 2>/dev/null); do
+    [[ -r "/proc/$pid/comm" ]] || continue
+    [[ "$(< "/proc/$pid/comm")" == "$want" ]] && n=$((n+1))
+  done
+  echo "$n"
+}
+
 FAIL=0
 WARN=0
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$*"; }
@@ -387,14 +406,11 @@ fi
 
 # ---------------------------------------------------------------------------
 head1 "6. duplicate nodes -- the reason 09-04 measured 100 Hz on a 50 Hz loop"
-# The EXECUTABLE names, not the package names: `pgrep -f r1_hw_bridge` also
-# matches any shell whose own command line happens to mention the package -- this
-# script's, for one. And -f is required either way, because comm is truncated to
-# 15 characters, so a bare `pgrep r1_hw_bridge_node` finds nothing while it runs.
+# The EXECUTABLE names, not the package names: `pgrep -f r1_hw_bridge` would also
+# match any shell whose command line mentions the package -- this script's, for
+# one. count_real() handles that; see its comment.
 for pat in r1_hw_bridge_node r1_policy_node; do
-  # Excluding this script and its parent shell, which can carry the pattern in
-  # their own argv and would otherwise count as a running node.
-  N=$(pgrep -f "$pat" 2>/dev/null | grep -vx -e "$$" -e "$PPID" | wc -l)
+  N=$(count_real "$pat")
   if [[ $LIVE -eq 1 ]]; then
     if   (( N == 0 )); then fail "$pat: not running (--live expects the stack up)"
     elif (( N == 1 )); then pass "$pat: exactly 1 process"

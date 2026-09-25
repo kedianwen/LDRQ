@@ -96,12 +96,24 @@ bool OurStackRunning(std::string * who)
     std::string raw((std::istreambuf_iterator<char>(in)),
                     std::istreambuf_iterator<char>());
     for (char & c : raw) {if (c == '\0') {c = ' ';}}
+
+    // Confirm with comm before believing the cmdline match. A shell merely
+    // INVOKED with a command that mentions the node name carries it in argv,
+    // which is a false positive that would make this tool refuse to run. Such a
+    // shell has comm "bash"; the node has comm equal to its name truncated to 15
+    // characters, which is also why comm cannot be used to FIND it.
+    std::string comm;
+    {
+      std::ifstream cf("/proc/" + std::string(e->d_name) + "/comm");
+      if (cf) {std::getline(cf, comm);}
+    }
+
     for (const char * pat : kOurs) {
-      if (raw.find(pat) != std::string::npos) {
-        *who = std::string(pat) + " (pid " + e->d_name + ")";
-        found = true;
-        break;
-      }
+      if (raw.find(pat) == std::string::npos) {continue;}
+      if (comm != std::string(pat).substr(0, 15)) {continue;}
+      *who = std::string(pat) + " (pid " + e->d_name + ")";
+      found = true;
+      break;
     }
     if (found) {break;}
   }

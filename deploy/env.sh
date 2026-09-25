@@ -110,6 +110,76 @@ if [[ "${ROS_LOCALHOST_ONLY}" != "1" ]]; then
 fi
 export R1_DEPLOY_ROOT="${_r1_deploy_root}"
 
+# Cross-terminal check.
+#
+# Three times now (2026-09-02, 09-24, 09-25) a second terminal could not see the
+# running stack because its ROS variables differed from the terminal the stack
+# was launched in. The failure is silent: `ros2 topic list` comes back with only
+# the CLI's own /parameter_events and /rosout, which looks identical to "the
+# bridge is not publishing", and nothing anywhere names the cause.
+#
+# The check above can only inspect THIS shell, and the mismatch is by definition
+# between two shells. So compare against what the RUNNING node actually has, read
+# out of /proc/<pid>/environ. That works precisely when DDS discovery does not --
+# the filesystem does not care about domains -- which is what makes the check
+# possible at all.
+_r1_check_running_stack() {
+    local pid v mine theirs differs=0 cand
+    # Two steps, because neither alone is correct.
+    #
+    # FIND with -f: comm is truncated to 15 characters, so `pgrep
+    # r1_hw_bridge_node` finds nothing while the node is running.
+    #
+    # CONFIRM with comm: -f matches any process merely CARRYING the name in its
+    # argv -- a shell that was invoked with a command mentioning it, for
+    # instance, which is a real false positive and has bitten this project three
+    # times now in three different tools. Excluding $$ and $PPID is not enough:
+    # the offender can be a grandparent. But a shell that only mentions the name
+    # has comm=bash, while the node has comm equal to the name truncated to 15
+    # characters. That is the discriminator.
+    local want_comm="r1_hw_bridge_no"          # first 15 chars of r1_hw_bridge_node
+    pid=""
+    for cand in $(pgrep -f r1_hw_bridge_node 2>/dev/null); do
+        [[ -r "/proc/${cand}/comm" ]] || continue
+        if [[ "$(< "/proc/${cand}/comm")" == "${want_comm}" ]]; then
+            pid="${cand}"
+            break
+        fi
+    done
+    [[ -n "${pid}" && -r "/proc/${pid}/environ" ]] || return 0
+
+    # One read of the environ, reused: it is a NUL-separated blob, so translate
+    # once rather than per variable.
+    local env_lines
+    env_lines=$(tr '\0' '\n' < "/proc/${pid}/environ" 2>/dev/null) || return 0
+
+    local node_domain node_localhost
+    node_domain=$(sed -n 's/^ROS_DOMAIN_ID=//p' <<< "${env_lines}" | head -1)
+    node_localhost=$(sed -n 's/^ROS_LOCALHOST_ONLY=//p' <<< "${env_lines}" | head -1)
+
+    for v in ROS_DOMAIN_ID ROS_LOCALHOST_ONLY RMW_IMPLEMENTATION; do
+        theirs=$(sed -n "s/^${v}=//p" <<< "${env_lines}" | head -1)
+        mine="${!v-}"
+        [[ -z "${theirs}" && -z "${mine}" ]] && continue
+        if [[ "${theirs}" != "${mine}" ]]; then
+            if [[ ${differs} -eq 0 ]]; then
+                echo "WARNING: a bridge is already running (pid ${pid}) with DIFFERENT ROS" >&2
+                echo "         settings. These two terminals will NOT see each other's nodes," >&2
+                echo "         and \`ros2 topic list\` will show only its own two topics." >&2
+                differs=1
+            fi
+            printf '           %-20s this shell: %-12s running node: %s\n' \
+                   "${v}" "${mine:-<unset>}" "${theirs:-<unset>}" >&2
+        fi
+    done
+    if [[ ${differs} -eq 1 ]]; then
+        echo "         Match the running node, then re-source and clear the CLI cache:" >&2
+        echo "           export ROS_DOMAIN_ID=${node_domain:-99} ROS_LOCALHOST_ONLY=${node_localhost:-1}" >&2
+        echo "           cd ${_r1_deploy_root} && source env.sh && ros2 daemon stop" >&2
+    fi
+}
+_r1_check_running_stack
+
 # Overlay the workspace if it has been built.
 if [[ -f "${_r1_deploy_root}/ros2_ws/install/setup.bash" ]]; then
     source "${_r1_deploy_root}/ros2_ws/install/setup.bash"
