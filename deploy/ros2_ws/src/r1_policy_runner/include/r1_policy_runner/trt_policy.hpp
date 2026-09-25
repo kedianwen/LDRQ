@@ -55,7 +55,7 @@ struct EngineInfo
 /// acceptance report claims to measure -- so the builder refuses it.
 struct BuildOptions
 {
-  /// Permit FP16 kernels. NOTE "permit", not "require": on this 73k-parameter
+  /// Permit FP16 kernels. NOTE "permit", not "require": on this 90k-parameter
   /// MLP at batch 1 the loop is kernel-launch bound, so TensorRT times FP32
   /// kernels as faster and keeps them. Measured on the Orin 2026-09-24: the
   /// FP16 plan's error was 1.717e-05, the same order as FP32, because almost

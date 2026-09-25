@@ -14,7 +14,7 @@ measured rather than assumed:
    until nvpmodel/jetson_clocks state has been checked.
 
 3. THE EXPECTED RESULT IS "NO MATERIAL DIFFERENCE", and that is a finding, not a
-   failure. This policy is 73k parameters at batch 1: ~150 kFLOP of arithmetic
+   failure. This policy is 90k parameters at batch 1: ~180 kFLOP of arithmetic
    against ~900 us of wall time, so >99.9% of a step is launch overhead and
    memory traffic. FP16 already demonstrated this on the Orin (2026-09-24:
    error 1.717e-05, FP32's order, because the builder kept FP32 kernels).
@@ -293,13 +293,13 @@ def main():
               "in a slide without saying so.",
               "",
               "A row where all three precisions land within noise of each other is the",
-              "expected result at batch 1 and 73k parameters, and it is the evidence that",
+              "expected result at batch 1 and 90k parameters, and it is the evidence that",
               "moves INT8 from 'performance optimisation' to 'controlled perturbation for",
               "the robustness study' (FR-R2/PG-5). It is not a failed measurement.",
               "",
               "Engine size is not guaranteed to fall either: on the Orin, FP16 came out",
               "51% LARGER than FP32 before the TF32 fix, because low precision adds",
-              "reformat layers and extra weight copies that a 73k-parameter network cannot",
+              "reformat layers and extra weight copies that a 90k-parameter network cannot",
               "amortise. Report what the bytes column says.",
               "",
               "## Raw output", ""]
