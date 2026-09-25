@@ -44,6 +44,19 @@ head1 "0. developer mode -- the one check a script cannot make for you"
 # two writers fight and the symptoms (torso sway, joint grinding, high-frequency
 # tremor, stance not held) all look exactly like a sim2real gap. W06 lost a
 # session to this.
+# CPU time a pid burns over a 1 s window, in percent of one core. Sampled from
+# /proc rather than taken from `ps %cpu`, which reports the average since the
+# process STARTED -- useless for a service that has been up for hours.
+cpu_pct_1s() {
+  local pid=$1 a b
+  a=$(awk '{print $14+$15}' "/proc/$pid/stat" 2>/dev/null) || return 1
+  sleep 1
+  b=$(awk '{print $14+$15}' "/proc/$pid/stat" 2>/dev/null) || return 1
+  # $14+$15 are utime+stime in clock ticks; USER_HZ is 100 on this kernel, so the
+  # delta over one second already is a percentage of one core.
+  echo $(( b - a ))
+}
+
 FACTORY=$(pgrep -a -f 'master_service|sport_mode|ai_sport|motion_switcher' 2>/dev/null | grep -v preflight || true)
 if [[ -n "$FACTORY" ]]; then
   fail "a factory motion process appears to be running:"
@@ -51,6 +64,35 @@ if [[ -n "$FACTORY" ]]; then
   info "switch to developer mode on the handheld BEFORE starting the stack."
   info "L2+B (damping) is a resting state only -- it also makes the factory"
   info "service the active writer, so do not use it while running."
+  # Whether the process EXISTS and whether it is WRITING are different questions,
+  # and only the second one matters. If developer mode leaves the service running
+  # but idle, a name match alone would fail forever and teach you to ignore this
+  # check -- which is the worst possible outcome for a safety gate. So sample what
+  # it is actually doing: a 500 Hz DDS writer burns measurable CPU; an idle
+  # service sits near zero.
+  info ""
+  info "sampling what it is actually doing (1 s)..."
+  BUSY=0
+  while read -r pid _; do
+    [[ -n "$pid" ]] || continue
+    PCT=$(cpu_pct_1s "$pid") || continue
+    info "  pid $pid: ${PCT}% of one core over 1 s"
+    (( PCT >= 3 )) && BUSY=1
+  done <<<"$FACTORY"
+  if (( BUSY == 1 )); then
+    info "  => that is an ACTIVE writer. Do not start the stack."
+  else
+    info "  => near-idle. It may already be released (developer mode can leave the"
+    info "     service running but not writing), or it may simply be between"
+    info "     bursts. This is a PROXY, not proof:"
+    info "       * if you have switched to developer mode on the handheld, a"
+    info "         near-idle master_service is expected and this FAIL is the"
+    info "         name match being conservative -- proceed, and watch the first"
+    info "         seconds of the stack for sway/grinding/tremor."
+    info "       * if you have NOT switched yet, switch now and re-run."
+    info "     The only real answer is to watch rt/lowcmd for a second writer, or"
+    info "     gate on MotionSwitcherClient::CheckMode(). Neither is built yet."
+  fi
 else
   pass "no factory motion process matched by name"
   warn "that is weak evidence. Name matching is not mode checking -- confirm"
@@ -189,11 +231,29 @@ head1 "5. power model and clocks"
 # loop with the GPU dropping to a low-power state between inferences, so this
 # belongs BEFORE the stack comes up, not only before the benchmark. W05 measured
 # the latency tail tightening 11x from pinning alone.
+# `nvpmodel -q` without root also tries to read /sys/kernel/nvpmodel_emc_cap/,
+# which is root-only, and prints NVPM ERROR lines about it (errno 13 = EACCES).
+# The MODE it reports is still correct. Those lines are stripped from the summary
+# so they cannot hide a different error -- and counted, so they are not simply
+# swallowed either. The EMC clock they failed to read is verified for real below.
+nvpm_mode() {
+  nvpmodel -q 2>&1 | grep -v 'NVPM ERROR' | tr '\n' ' ' | sed 's/  */ /g; s/ *$//'
+}
+nvpm_noise() {
+  nvpmodel -q 2>&1 | grep -c 'NVPM ERROR' || true
+}
+
 CUR_MODE=""
 MAXN_ID=""
 if command -v nvpmodel >/dev/null 2>&1; then
-  CUR_MODE=$(nvpmodel -q 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g')
+  CUR_MODE=$(nvpm_mode)
   info "current: ${CUR_MODE:-unreadable}"
+  NOISE=$(nvpm_noise)
+  if [[ "${NOISE:-0}" -gt 0 ]]; then
+    info "(nvpmodel also printed $NOISE 'NVPM ERROR' line(s) about"
+    info " /sys/kernel/nvpmodel_emc_cap -- that is EACCES from querying without"
+    info " root. It does not affect the mode. EMC is checked directly below.)"
+  fi
   # Discover the mode IDs from the board's own config rather than assuming a
   # number. Mode numbering is per-module: 0 is MAXN on AGX Orin, but on an Orin
   # Nano 8GB mode 0 is 15W. Hard-coding `-m 0` can therefore LOWER the power cap
@@ -218,7 +278,8 @@ else
   warn "nvpmodel not on PATH"
 fi
 GOV=/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
-[[ -r $GOV ]] && info "cpu0 governor=$(cat $GOV)"
+GOV_BEFORE=""
+[[ -r $GOV ]] && { GOV_BEFORE=$(cat $GOV); info "cpu0 governor=$GOV_BEFORE"; }
 
 if [[ $LOCK -eq 1 ]]; then
   if [[ -z "$MAXN_ID" ]]; then
@@ -241,13 +302,52 @@ if [[ $LOCK -eq 1 ]]; then
     fi
     # Verify rather than assume: nvpmodel can decline a switch (and on some
     # modules asks to reboot), and a declined switch is not loud.
-    NEW_MODE=$(nvpmodel -q 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g')
+    NEW_MODE=$(nvpm_mode)
     if grep -qi 'maxn' <<<"$NEW_MODE"; then
       pass "power model now: $NEW_MODE"
     else
       fail "power model is still '$NEW_MODE' -- the switch did not take"
       info "some modules ask to reboot before a mode change applies"
     fi
+
+    # "jetson_clocks applied" is the tool's exit status, not a measurement. What
+    # matters is whether the cores actually sit at their ceiling, so read the
+    # frequencies back. W05 on this Orin after locking: 8 cores at 1984 MHz,
+    # GPU 918 MHz, EMC 3199 MHz -- if the CPUs come back well under their own
+    # reported maximum, the lock did not take however cleanly it exited.
+    [[ -r $GOV ]] && info "cpu0 governor now=$(cat $GOV)  (was ${GOV_BEFORE:-?})"
+    # Test scaling_min_freq, not scaling_cur_freq. What jetson_clocks DOES is pin
+    # the floor to the ceiling, so min==max is the configuration it is supposed to
+    # have left behind -- a deterministic read. scaling_cur_freq is an
+    # instantaneous sample and an idle core dips below max even when correctly
+    # pinned, so gating on it produces a FAIL that comes and goes. It is printed
+    # alongside for context only.
+    UNPINNED=0; NCPU=0
+    for c in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+      [[ -r $c/scaling_min_freq && -r $c/cpuinfo_max_freq ]] || continue
+      MIN=$(cat "$c/scaling_min_freq"); MAX=$(cat "$c/cpuinfo_max_freq")
+      CUR=$(cat "$c/scaling_cur_freq" 2>/dev/null || echo 0)
+      NCPU=$((NCPU+1))
+      (( MIN < MAX )) && UNPINNED=$((UNPINNED+1))
+      info "  $(basename "$(dirname "$c")")  min $((MIN/1000)) / max $((MAX/1000)) MHz  (now $((CUR/1000)))"
+    done
+    if (( NCPU == 0 )); then
+      warn "no readable cpufreq nodes; cannot verify the CPU clocks"
+    elif (( UNPINNED == 0 )); then
+      pass "all $NCPU online cores have their floor pinned to their ceiling"
+    else
+      fail "$UNPINNED of $NCPU cores still have min < max -- clocks are NOT pinned"
+      info "jetson_clocks exited cleanly but left the floor down. Re-run it, and"
+      info "check nothing else (a thermal cap, another governor writer) is fighting it."
+    fi
+    # GPU and EMC live in module-specific paths, so print whatever jetson_clocks
+    # reports rather than guessing at sysfs nodes that differ per JetPack.
+    if JC=$(sudo jetson_clocks --show </dev/null 2>/dev/null); then
+      grep -Ei 'GPU|EMC|^SOC|Thermal' <<<"$JC" | head -8 | sed 's/^/        /'
+    else
+      info "jetson_clocks --show unavailable; GPU/EMC not verified here"
+    fi
+
     info "jetson_clocks does NOT survive a reboot. Re-run this after every"
     info "power cycle, or the latency numbers silently change under you."
   fi
