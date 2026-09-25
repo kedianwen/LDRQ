@@ -14,8 +14,8 @@
 // it, so --fp32 (the default) is reproducible fp32. --tf32 opts back in.
 //
 // And the measured caveat that applies to every low-precision flag here
-// (Orin NX, 2026-09-24): this policy is 73k parameters at batch 1, so a step
-// costs ~150 kFLOP against ~900 us of wall time -- the loop is kernel-launch
+// (Orin NX, 2026-09-24): this policy is 90k parameters at batch 1, so a step
+// costs ~180 kFLOP against ~900 us of wall time -- the loop is kernel-launch
 // bound and the arithmetic is noise. Enabling FP16 changed neither the numerics
 // (1.717e-05, FP32's order) nor the latency, because the builder timed FP32
 // kernels as faster and kept them. Expect the same of INT8. Its value here is
