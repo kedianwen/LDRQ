@@ -451,24 +451,82 @@ fi
 # ---------------------------------------------------------------------------
 if [[ $LIVE -eq 1 ]]; then
   head1 "9. live topics"
-  if command -v ros2 >/dev/null 2>&1; then
-    T=$(ros2 topic list 2>/dev/null)
-    for t in /r1_hw_bridge/obs /r1_hw_bridge/joint_pos /r1_hw_bridge/cmd_debug \
-             /r1_hw_bridge/status /r1_policy_runner/action; do
-      grep -qx "$t" <<<"$T" && pass "$t" || fail "$t absent"
-    done
-    # New in the W08 package. Its absence means the bridge binary predates the
-    # overlay, so walk_metrics falls back to the kKp*error ESTIMATE and reports
-    # an estimate as though it were a measurement unless it is told.
-    if grep -qx /r1_hw_bridge/joint_tau <<<"$T"; then
-      pass "/r1_hw_bridge/joint_tau (measured torque available)"
-    else
-      fail "/r1_hw_bridge/joint_tau absent -- bridge was not rebuilt from the W08 sources"
-      info "walk_metrics.py will fall back to the kKp*error estimate. Rebuild:"
-      info "  colcon build --packages-select r1_hw_bridge && source install/setup.bash"
-    fi
-  else
+  if ! command -v ros2 >/dev/null 2>&1; then
     warn "ros2 CLI unavailable; cannot list topics"
+  else
+    T=$(ros2 topic list 2>/dev/null)
+    # /parameter_events and /rosout belong to the CLI's OWN node, so a list
+    # containing only those means "I can see nothing but myself". That is a
+    # discovery or liveness problem, and it looks exactly like "the bridge is not
+    # publishing" -- which is why it has cost this project time three times. The
+    # two cases need different answers, so separate them before concluding
+    # anything about any individual topic.
+    VISIBLE=$(grep -vx -e /parameter_events -e /rosout <<<"$T" | grep -c . || true)
+    if (( VISIBLE == 0 )); then
+      fail "the graph is EMPTY apart from the CLI's own /parameter_events + /rosout"
+      info "This is NOT evidence that the bridge is not publishing -- it is"
+      info "evidence that nothing was discovered. Three things do that, and the"
+      info "block below tells you which:"
+      info ""
+      info "  a) the stack is not running any more:"
+      if (( $(count_real r1_hw_bridge_node) > 0 )); then
+        info "     -> r1_hw_bridge_node IS running. Not this."
+      else
+        info "     -> r1_hw_bridge_node is NOT running. THIS IS IT. The launch"
+        info "        holds the terminal, so if you stopped it to type a command,"
+        info "        the stack went with it. Start it in one terminal and leave"
+        info "        it; run tools from a second one."
+      fi
+      info ""
+      info "  b) this shell and the node disagree on a ROS variable:"
+      NPID=""
+      for cand in $(pgrep -f r1_hw_bridge_node 2>/dev/null); do
+        [[ -r "/proc/$cand/comm" ]] || continue
+        [[ "$(< "/proc/$cand/comm")" == "r1_hw_bridge_no" ]] && { NPID="$cand"; break; }
+      done
+      if [[ -n "$NPID" && -r "/proc/$NPID/environ" ]]; then
+        NENV=$(tr '\0' '\n' < "/proc/$NPID/environ")
+        for v in ROS_DOMAIN_ID ROS_LOCALHOST_ONLY RMW_IMPLEMENTATION; do
+          THEIRS=$(sed -n "s/^${v}=//p" <<<"$NENV" | head -1)
+          MINE="${!v-}"
+          if [[ "$THEIRS" == "$MINE" ]]; then
+            info "     $v: both '${MINE:-<unset>}'  ok"
+          else
+            info "     $v: MISMATCH -- this shell '${MINE:-<unset>}', node '${THEIRS:-<unset>}'"
+            info "        RMW especially: this robot carries the SDK's CycloneDDS as"
+            info "        well as foxy's, and two different RMWs never discover each"
+            info "        other however right the domain is."
+          fi
+        done
+      else
+        info "     (no running node to compare against -- see (a))"
+      fi
+      info ""
+      info "  c) a ros2 daemon started under a different environment is answering"
+      info "     for you instead of discovering:"
+      if pgrep -af _ros2_daemon >/dev/null 2>&1; then
+        pgrep -af _ros2_daemon | sed 's/^/          /'
+        info "     -> a daemon is running. Kill its cached view: ros2 daemon stop"
+      else
+        info "     -> no daemon running. Not this."
+      fi
+    else
+      for t in /r1_hw_bridge/obs /r1_hw_bridge/joint_pos /r1_hw_bridge/cmd_debug \
+               /r1_hw_bridge/status /r1_policy_runner/action; do
+        grep -qx "$t" <<<"$T" && pass "$t" || fail "$t absent"
+      done
+      # Only meaningful once the rest of the graph IS visible: then a missing
+      # joint_tau really does mean the bridge binary predates the overlay, and
+      # walk_metrics will fall back to the kKp*error ESTIMATE.
+      if grep -qx /r1_hw_bridge/joint_tau <<<"$T"; then
+        pass "/r1_hw_bridge/joint_tau (measured torque available)"
+      else
+        fail "/r1_hw_bridge/joint_tau absent while the rest of the graph is visible"
+        info "=> the bridge was not rebuilt from the W08 sources. walk_metrics.py"
+        info "   will fall back to the kKp*error estimate. Rebuild:"
+        info "  colcon build --packages-select r1_hw_bridge && source install/setup.bash"
+      fi
+    fi
   fi
 fi
 
