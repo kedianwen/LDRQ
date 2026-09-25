@@ -3,16 +3,19 @@
 # session, and that all fail QUIETLY -- the reason they cost a session is that
 # none of them produces an error message.
 #
-#   source $R1_DEPLOY_ROOT/env.sh
-#   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh          # before starting the stack
-#   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh --live   # again, with it running
+#   export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1
+#   cd ~/kdw_deploy/deploy && source env.sh
+#   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh                # before starting the stack
+#   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh --lock-clocks  # and pin the power model
+#   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh --live         # again, with it running
 #
 # Exit code is the number of FAILs. WARNs do not fail: some of them are
 # judgement calls that only the operator standing next to the robot can settle.
 #
-# It reports and does not repair. Everything that would need root (nvpmodel,
-# jetson_clocks) or that changes what the robot is doing is printed as a command
-# for you to run, deliberately.
+# It reports and does not repair, with one opt-in exception: --lock-clocks pins
+# the power model and clocks. That one is opt-in rather than automatic because it
+# needs root and changes how the whole board behaves; everything else that would
+# change what the robot is doing is printed as a command for you to run.
 
 set -uo pipefail
 
@@ -25,7 +28,15 @@ info() { printf '        %s\n' "$*"; }
 head1() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 LIVE=0
-[[ "${1:-}" == "--live" ]] && LIVE=1
+LOCK=0
+for a in "$@"; do
+  case "$a" in
+    --live)        LIVE=1 ;;
+    --lock-clocks) LOCK=1 ;;
+    -h|--help)     sed -n '2,30p' "$0"; exit 0 ;;
+    *) echo "unknown argument: $a  (--live, --lock-clocks)"; exit 2 ;;
+  esac
+done
 
 # ---------------------------------------------------------------------------
 head1 "0. developer mode -- the one check a script cannot make for you"
@@ -70,15 +81,27 @@ if [[ "${ROS_LOCALHOST_ONLY:-unset}" == "1" ]]; then
 else
   fail "ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-unset} (env.sh defaults it to 1 with"
   info "\${VAR:-1}, which does NOT override an inherited value)"
-  info "fix, in EVERY terminal:  export ROS_LOCALHOST_ONLY=1 && source \$R1_DEPLOY_ROOT/env.sh"
+  info "fix, in EVERY terminal, BEFORE sourcing env.sh:"
+  info "  export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1"
+  info "  cd ~/kdw_deploy/deploy && source env.sh"
   info "Symptom if ignored: nodes do not see each other. ros2 topic list comes"
   info "back short and nothing reports a reason."
 fi
+# Exactly the same ${VAR:-default} trap as above, and it is symmetric: an
+# inherited ROS_DOMAIN_ID=0 survives sourcing env.sh just as an inherited
+# ROS_LOCALHOST_ONLY=0 does. On 2026-09-24 the domain happened to be unset so it
+# picked up the 99 and only localhost_only was wrong -- that was luck, not
+# design. Set both explicitly and neither depends on luck.
 if [[ "${ROS_DOMAIN_ID:-unset}" == "99" ]]; then
   pass "ROS_DOMAIN_ID=99"
 else
-  warn "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-unset}, env.sh's default is 99 -- fine if"
-  info "deliberate, but it must match in every terminal"
+  fail "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-unset}; env.sh defaults it to 99 with"
+  info "\${VAR:-99}, which does NOT override an inherited value either"
+  info "fix, in EVERY terminal, BEFORE sourcing env.sh:"
+  info "  export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1"
+  info "  cd ~/kdw_deploy/deploy && source env.sh"
+  info "Two terminals on different domains cannot see each other, and the"
+  info "symptom is a short topic list, not an error."
 fi
 info "ROS_DISTRO=${ROS_DISTRO:-unset}  RMW=${RMW_IMPLEMENTATION:-unset}"
 
@@ -161,17 +184,80 @@ if [[ -x "$BIN/r1_parity_check" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-head1 "5. clocks -- unpinned clocks make every latency number a lottery"
+head1 "5. power model and clocks"
+# Not just a benchmark concern. An unpinned board also runs the 50 Hz control
+# loop with the GPU dropping to a low-power state between inferences, so this
+# belongs BEFORE the stack comes up, not only before the benchmark. W05 measured
+# the latency tail tightening 11x from pinning alone.
+CUR_MODE=""
+MAXN_ID=""
 if command -v nvpmodel >/dev/null 2>&1; then
-  info "$(nvpmodel -q 2>/dev/null | tr '\n' ' ')"
+  CUR_MODE=$(nvpmodel -q 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g')
+  info "current: ${CUR_MODE:-unreadable}"
+  # Discover the mode IDs from the board's own config rather than assuming a
+  # number. Mode numbering is per-module: 0 is MAXN on AGX Orin, but on an Orin
+  # Nano 8GB mode 0 is 15W. Hard-coding `-m 0` can therefore LOWER the power cap
+  # on some modules, which is the opposite of the intent and would show up only
+  # as slower inference.
+  if [[ -r /etc/nvpmodel.conf ]]; then
+    MODES=$(grep -oP '<\s*POWER_MODEL\s+ID=\s*\K[0-9]+\s+NAME=\s*\S+' /etc/nvpmodel.conf \
+            | sed 's/NAME=//' | sort -u)
+    if [[ -n "$MODES" ]]; then
+      info "modes on this module:"
+      printf '%s\n' "$MODES" | sed 's/^/          /'
+      MAXN_ID=$(printf '%s\n' "$MODES" | awk 'toupper($2) ~ /MAXN/ {print $1; exit}')
+    fi
+  fi
+  if [[ -n "$MAXN_ID" ]]; then
+    info "MAXN is mode $MAXN_ID on this module"
+  else
+    warn "no mode named MAXN found in /etc/nvpmodel.conf -- pick the highest-power"
+    info "mode from the list above by hand. NOT guessing a number here on purpose."
+  fi
 else
   warn "nvpmodel not on PATH"
 fi
 GOV=/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 [[ -r $GOV ]] && info "cpu0 governor=$(cat $GOV)"
-warn "pin them before any benchmark (W05: locking cut the tail 11x):"
-info "  sudo nvpmodel -m 0 && sudo jetson_clocks"
-info "These need a password, so they are printed rather than run."
+
+if [[ $LOCK -eq 1 ]]; then
+  if [[ -z "$MAXN_ID" ]]; then
+    fail "--lock-clocks asked for, but the MAXN mode id could not be determined"
+    info "run it by hand with the id from the list above, then re-run this script"
+  else
+    info ""
+    info "--lock-clocks: applying. sudo will ask for a password."
+    # Order matters: nvpmodel resets the clock policy, so jetson_clocks has to
+    # come second or it is undone immediately.
+    if sudo nvpmodel -m "$MAXN_ID" </dev/null; then
+      info "nvpmodel -m $MAXN_ID applied"
+    else
+      fail "nvpmodel -m $MAXN_ID failed"
+    fi
+    if sudo jetson_clocks </dev/null 2>/dev/null || sudo /usr/bin/jetson_clocks </dev/null 2>/dev/null; then
+      info "jetson_clocks applied"
+    else
+      warn "jetson_clocks not found or failed; clocks are NOT pinned"
+    fi
+    # Verify rather than assume: nvpmodel can decline a switch (and on some
+    # modules asks to reboot), and a declined switch is not loud.
+    NEW_MODE=$(nvpmodel -q 2>/dev/null | tr '\n' ' ' | sed 's/  */ /g')
+    if grep -qi 'maxn' <<<"$NEW_MODE"; then
+      pass "power model now: $NEW_MODE"
+    else
+      fail "power model is still '$NEW_MODE' -- the switch did not take"
+      info "some modules ask to reboot before a mode change applies"
+    fi
+    info "jetson_clocks does NOT survive a reboot. Re-run this after every"
+    info "power cycle, or the latency numbers silently change under you."
+  fi
+else
+  warn "clocks not pinned. Do it before the stack comes up, not just before the"
+  info "benchmark -- a low-power GPU state between 20 ms-apart inferences is a"
+  info "control-loop concern too:"
+  info "  bash \$R1_DEPLOY_ROOT/tools/w08_preflight.sh --lock-clocks"
+  info "(or by hand: sudo nvpmodel -m ${MAXN_ID:-<MAXN id above>} && sudo jetson_clocks)"
+fi
 
 # ---------------------------------------------------------------------------
 head1 "6. duplicate nodes -- the reason 09-04 measured 100 Hz on a 50 Hz loop"

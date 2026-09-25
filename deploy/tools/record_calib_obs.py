@@ -87,6 +87,35 @@ def coverage(samples, terms):
     if uniq < len(samples) * 0.5:
         flags.append(f"only {uniq} of {len(samples)} frames are distinct: the recording is "
                      "mostly repeats, so its effective size is much smaller than n.")
+
+    # How many OPERATING POINTS this set covers, which is a different question
+    # from how many samples it has. 3000 samples of one straight walk at one
+    # speed is one operating point sampled 3000 times; INT8's activation scales
+    # are then set by a single point on the command envelope.
+    vc = next((t for t in terms if t["name"] == "velocity_commands"), None)
+    if vc:
+        points = {tuple(round(v, 1) for v in newest(s, vc)) for s in samples}
+        print(f"  distinct velocity commands (0.1 rounding): {len(points)}")
+        for pt in sorted(points)[:8]:
+            print(f"    vx={pt[0]:+.1f} vy={pt[1]:+.1f} wz={pt[2]:+.1f}")
+        if len(points) < 3:
+            flags.append(f"only {len(points)} operating point(s). The calibration scales "
+                         "will be set by that one point on the command envelope. Sweep "
+                         "speeds and add a turn -- see the sweep protocol in the W08 doc.")
+
+    # Gait cycles, not seconds. A 60 s recording of a 1.2 Hz gait is ~72 cycles;
+    # a 60 s recording of a robot standing is 0, and both are "60 s".
+    jv = next((t for t in terms if t["name"] == "joint_vel"), None)
+    if jv:
+        # joint 0 is left_hip_pitch: the joint whose velocity tracks the gait
+        # period most directly.
+        series = [newest(s, jv)[0] for s in samples]
+        flips = sum(1 for i in range(1, len(series)) if series[i] * series[i - 1] < 0)
+        cycles = flips / 2.0
+        print(f"  left_hip_pitch velocity sign flips: {flips}  (~{cycles:.0f} gait cycles)")
+        if cycles < 20:
+            flags.append(f"only ~{cycles:.0f} gait cycles. Sample COUNT is not coverage: "
+                         "consecutive 50 Hz frames of a 1.2 Hz gait are nearly identical.")
     return flags
 
 
@@ -124,6 +153,10 @@ def main():
     ap.add_argument("--stats", help="report on an existing R1CB file and exit (no ROS)")
     ap.add_argument("--from-walk", help="convert the obs stream out of a walk_metrics.py "
                                        "--save JSON instead of subscribing (no ROS needed)")
+    ap.add_argument("--merge", nargs="+", metavar="FILE",
+                    help="concatenate several R1CB files into one calibration set (no ROS). "
+                         "This is how a multi-condition sweep becomes one set: record each "
+                         "condition separately so a bad one can be dropped, then merge.")
     args = ap.parse_args()
 
     terms, total_dim = load_terms()
@@ -139,6 +172,29 @@ def main():
 
     if not args.out:
         sys.exit("--out is required when recording (or pass --stats to inspect a file)")
+
+    if args.merge:
+        merged, dim = [], None
+        for f in args.merge:
+            part, d = read_r1cb(f)
+            if dim is None:
+                dim = d
+            elif d != dim:
+                sys.exit(f"{f} is {d}-dim, the others are {dim}-dim")
+            print(f"  + {len(part):5d} samples from {f}")
+            merged.extend(part)
+        if dim != total_dim:
+            sys.exit(f"merged set is {dim}-dim, the interface says {total_dim}")
+        print(f"\nmerged total: {len(merged)} samples")
+        # Deliberately NOT decimated. At 50 Hz consecutive frames are nearly
+        # identical, and the obvious reaction is to thin them out -- but entropy
+        # calibration weights the activation histogram by how long the policy
+        # actually spends in each region, and dwell time is real information.
+        # What the set needs is more CONDITIONS, not fewer samples per condition.
+        for f in coverage(merged, terms):
+            print(f"  ! {f}")
+        write_r1cb(args.out, merged, dim)
+        return
 
     if args.from_walk:
         blob = json.loads(pathlib.Path(args.from_walk).read_text())
