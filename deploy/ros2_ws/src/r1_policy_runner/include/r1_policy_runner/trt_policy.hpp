@@ -84,6 +84,19 @@ struct BuildOptions
   /// visits activations the policy never sees. The builder says which it got.
   std::string calib_data;
 
+  /// Use MinMax calibration instead of Entropy2. They trade in opposite
+  /// directions: Entropy2 is robust to outlier frames but may CLIP the tails,
+  /// MinMax clips nothing but lets one outlier frame cost resolution everywhere.
+  /// For a locomotion policy the tails are where recovery lives, so neither is
+  /// obviously right. Both cost ~20 s to build -- build both and compare
+  /// per-dimension rather than arguing about it.
+  bool calib_minmax = false;
+
+  /// Raise the TensorRT log threshold to kINFO, which is where the per-tensor
+  /// dynamic ranges chosen by calibration are printed. Noisy; the only way to
+  /// see which layers the quantisation is tight on.
+  bool verbose = false;
+
   /// Where to cache TensorRT's calibration table. If the file exists it is
   /// REUSED and the calibration pass is skipped entirely -- so a stale cache
   /// makes a new calibration set look like it had no effect. Delete it when

@@ -103,19 +103,43 @@ bool LoadObsFile(
   return true;
 }
 
+/// What BuildEngineFromOnnx needs from a calibrator, independent of which
+/// TensorRT calibration algorithm it derives from.
+struct CalibratorHandle
+{
+  virtual ~CalibratorHandle() = default;
+  virtual nvinfer1::IInt8Calibrator * trt() = 0;
+  virtual bool ok() const = 0;
+  virtual bool cache_was_reused() const = 0;
+};
+
 /// Feeds recorded observations to TensorRT's INT8 calibration pass.
 ///
-/// Entropy calibration 2 rather than MinMax: MinMax pins the scale to the most
-/// extreme activation in the set, so one outlier frame costs resolution
-/// everywhere else, and a 30 s robot recording will contain outlier frames.
+/// Templated on the algorithm because the two available ones make OPPOSITE
+/// trades and this policy has a reason to care about both:
+///
+///   Entropy2  minimises information loss over the whole histogram, so a single
+///             outlier frame does not cost resolution everywhere else. A 60 s
+///             robot recording will contain outlier frames.
+///   MinMax    pins the scale to the most extreme activation seen, so nothing
+///             clips. For a locomotion policy the tails are where recovery
+///             lives: clipping the activation that corresponds to "being
+///             shoved" degrades exactly the state that matters most, and that
+///             is a failure mode no aggregate error number surfaces.
+///
+/// Neither is obviously right, both cost ~20 s to build, so build both and
+/// compare per-dimension. For a project that is treating INT8 as a controlled
+/// perturbation source rather than a speed-up, having two perturbation variants
+/// is worth more than picking one and defending it.
 ///
 /// Batch is 1 because the engine is batch 1. That makes calibration slow in
 /// wall-clock terms and exactly representative in distribution terms, which is
 /// the trade worth making for a few thousand samples.
-class ObsCalibrator : public nvinfer1::IInt8EntropyCalibrator2
+template<typename Algo>
+class ObsCalibratorT : public Algo, public CalibratorHandle
 {
 public:
-  ObsCalibrator(std::vector<float> data, uint32_t n, uint32_t dim, std::string cache_path)
+  ObsCalibratorT(std::vector<float> data, uint32_t n, uint32_t dim, std::string cache_path)
   : data_(std::move(data)), n_(n), dim_(dim), cache_path_(std::move(cache_path))
   {
     bytes_ = static_cast<std::size_t>(dim_) * sizeof(float);
@@ -128,13 +152,14 @@ public:
     }
   }
 
-  ~ObsCalibrator() override
+  ~ObsCalibratorT() override
   {
     if (d_buf_) {cudaFree(d_buf_);}
   }
 
-  bool ok() const {return d_buf_ != nullptr;}
-  bool cache_was_reused() const {return reused_;}
+  nvinfer1::IInt8Calibrator * trt() override {return this;}
+  bool ok() const override {return d_buf_ != nullptr;}
+  bool cache_was_reused() const override {return reused_;}
 
   int32_t getBatchSize() const noexcept override {return 1;}
 
@@ -177,6 +202,9 @@ private:
   std::vector<char> cache_;
   bool reused_ = false;
 };
+
+using EntropyObsCalibrator = ObsCalibratorT<nvinfer1::IInt8EntropyCalibrator2>;
+using MinMaxObsCalibrator = ObsCalibratorT<nvinfer1::IInt8MinMaxCalibrator>;
 
 }  // namespace
 
@@ -229,7 +257,12 @@ bool BuildEngineFromOnnx(
       return false;
     };
 
-  TrtLogger logger{nvinfer1::ILogger::Severity::kWARNING};
+  // kINFO is where TensorRT prints the per-tensor dynamic ranges the calibrator
+  // produced. That is the only way to see WHICH layers the quantisation is tight
+  // on -- and the W08 plan specifically wants a look at the layers where the
+  // FP16 build reported subnormal weights.
+  TrtLogger logger{opt.verbose ? nvinfer1::ILogger::Severity::kINFO
+    : nvinfer1::ILogger::Severity::kWARNING};
 
   TrtPtr<nvinfer1::IBuilder> builder{nvinfer1::createInferBuilder(logger)};
   if (!builder) {return fail("createInferBuilder failed");}
@@ -247,7 +280,8 @@ bool BuildEngineFromOnnx(
   if (!parser) {return fail("createParser failed");}
 
   if (!parser->parseFromFile(
-      onnx_path.c_str(), static_cast<int>(nvinfer1::ILogger::Severity::kWARNING)))
+      onnx_path.c_str(), static_cast<int>(opt.verbose ?
+      nvinfer1::ILogger::Severity::kINFO : nvinfer1::ILogger::Severity::kWARNING)))
   {
     std::ostringstream os;
     os << "failed to parse " << onnx_path;
@@ -278,7 +312,7 @@ bool BuildEngineFromOnnx(
   // -- INT8 ------------------------------------------------------------------
   // Held in scope until buildSerializedNetwork returns: TensorRT calls back into
   // the calibrator during the build, not before it.
-  std::unique_ptr<ObsCalibrator> calibrator;
+  std::unique_ptr<CalibratorHandle> calibrator;
   if (opt.int8) {
     if (!builder->platformHasFastInt8()) {
       return fail("platform reports no fast INT8; refusing to build an INT8 plan here");
@@ -325,12 +359,21 @@ bool BuildEngineFromOnnx(
                 << "         hundred at minimum (>= 1000 preferred = 20 s at 50 Hz)\n";
     }
 
-    calibrator = std::make_unique<ObsCalibrator>(
-      std::move(calib_data), n, dim, opt.calib_cache);
+    if (opt.calib_minmax) {
+      calibrator = std::make_unique<MinMaxObsCalibrator>(
+        std::move(calib_data), n, dim, opt.calib_cache);
+    } else {
+      calibrator = std::make_unique<EntropyObsCalibrator>(
+        std::move(calib_data), n, dim, opt.calib_cache);
+    }
     if (!calibrator->ok()) {return fail("cudaMalloc for the calibration buffer failed");}
+    std::cout << "int8: algorithm = "
+              << (opt.calib_minmax ? "minmax (nothing clips; one outlier frame "
+      "costs resolution everywhere)" : "entropy2 (robust to outliers; the tails "
+      "may clip)") << "\n";
 
     config->setFlag(nvinfer1::BuilderFlag::kINT8);
-    config->setInt8Calibrator(calibrator.get());
+    config->setInt8Calibrator(calibrator->trt());
     if (!opt.calib_cache.empty()) {
       std::cout << "int8: calibration cache " << opt.calib_cache << "\n";
     }

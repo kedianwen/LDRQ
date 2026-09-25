@@ -49,6 +49,14 @@ void Usage(const char * argv0)
     << "  --calib-cache <f>  where to cache the calibration table. If it EXISTS it\n"
     << "               is reused and calibration is skipped, so delete it whenever\n"
     << "               --calib changes. The build says which path it took.\n"
+    << "  --calib-minmax  use MinMax calibration instead of Entropy2. Opposite\n"
+    << "               trades: Entropy2 is robust to outlier frames but may CLIP\n"
+    << "               the tails; MinMax clips nothing but lets one outlier frame\n"
+    << "               cost resolution everywhere. On a locomotion policy the tails\n"
+    << "               are where recovery lives, so build both (~20s each) and\n"
+    << "               compare with --per-dim instead of picking one on principle.\n"
+    << "  --verbose    raise TensorRT logging to kINFO, which is where the\n"
+    << "               per-tensor dynamic ranges chosen by calibration are printed.\n"
     << "  --tf32       allow TF32 (TensorRT's default, which we otherwise clear).\n"
     << "               TF32 rounds GEMM inputs to a 10-bit mantissa, so an 'fp32'\n"
     << "               engine drifts ~1e-2 AND varies between rebuilds. Do not use\n"
@@ -79,6 +87,10 @@ int main(int argc, char ** argv)
       opt.calib_data = next("--calib");
     } else if (a == "--calib-cache") {
       opt.calib_cache = next("--calib-cache");
+    } else if (a == "--calib-minmax") {
+      opt.calib_minmax = true;
+    } else if (a == "--verbose") {
+      opt.verbose = true;
     } else if (a == "--tf32") {
       opt.allow_tf32 = true;
     } else if (a == "--workspace") {
@@ -90,11 +102,16 @@ int main(int argc, char ** argv)
     }
   }
   if (onnx.empty() || plan.empty()) {Usage(argv[0]); return 2;}
+  if (opt.calib_minmax && !opt.int8) {
+    std::cerr << "error: --calib-minmax only means anything with --int8\n";
+    return 2;
+  }
 
   // Spelled out rather than abbreviated: this string is what ends up pasted into
   // the commissioning log as the record of what was built.
   std::string precision = opt.int8 ? "int8" : (opt.fp16 ? "fp16" : "fp32");
   if (opt.int8 && opt.fp16) {precision = "int8+fp16";}
+  if (opt.int8) {precision += opt.calib_minmax ? " minmax" : " entropy2";}
   precision += opt.allow_tf32 ? " +tf32 (NOT reproducible)" : " (tf32 cleared)";
   std::cout << "building " << plan << " from " << onnx
             << "  (precision=" << precision
@@ -122,7 +139,7 @@ int main(int argc, char ** argv)
     if (opt.int8) {
       std::cout
         << "\nINT8 next steps -- this plan is NOT accepted by having built:\n"
-        << "  1. r1_parity_check --plan " << plan << " --baseline <fp16.plan> \\\n"
+        << "  1. r1_parity_check --plan " << plan << " --baseline <fp32.plan> \\\n"
         << "       --fixture <parity_fixture.bin> --per-dim\n"
         << "     (engine-vs-engine. There is no pass line here; the deliverable is\n"
         << "      the magnitude and the STRUCTURE of the error -- spread evenly, or\n"
