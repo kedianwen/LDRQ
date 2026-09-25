@@ -9,6 +9,10 @@ endif()
 
 add_executable(probe_lowstate probe_lowstate.cpp)
 
+# Second-writer detector. Same SDK, same link line, read-only like the probe
+# above -- see probe_lowcmd.cpp for why a process-name check is not enough.
+add_executable(probe_lowcmd probe_lowcmd.cpp)
+
 # The SDK normally installs a package config. Use it when it is there; fall
 # back to the plain install layout when it is not, so a missing config file
 # does not block the one measurement W06 is waiting on.
@@ -16,14 +20,18 @@ find_package(unitree_sdk2 QUIET)
 if(unitree_sdk2_FOUND)
   message(STATUS "using unitree_sdk2 package config")
   target_link_libraries(probe_lowstate unitree_sdk2)
+  target_link_libraries(probe_lowcmd unitree_sdk2)
 else()
   message(WARNING "unitree_sdk2 package config not found; linking by path")
   target_include_directories(probe_lowstate PRIVATE /usr/local/include)
+  target_include_directories(probe_lowcmd PRIVATE /usr/local/include)
   find_library(UNITREE_SDK2 unitree_sdk2 PATHS /usr/local/lib REQUIRED)
   find_library(DDSCXX ddscxx PATHS /usr/local/lib REQUIRED)
   find_library(DDSC   ddsc   PATHS /usr/local/lib REQUIRED)
   target_link_libraries(probe_lowstate ${UNITREE_SDK2} ${DDSCXX} ${DDSC})
+  target_link_libraries(probe_lowcmd ${UNITREE_SDK2} ${DDSCXX} ${DDSC})
 endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(probe_lowstate Threads::Threads)
+target_link_libraries(probe_lowcmd Threads::Threads)

@@ -39,66 +39,92 @@ for a in "$@"; do
 done
 
 # ---------------------------------------------------------------------------
-head1 "0. developer mode -- the one check a script cannot make for you"
-# The factory motion service is a 500 Hz writer on rt/lowcmd. With it running,
-# two writers fight and the symptoms (torso sway, joint grinding, high-frequency
-# tremor, stance not held) all look exactly like a sim2real gap. W06 lost a
-# session to this.
-# CPU time a pid burns over a 1 s window, in percent of one core. Sampled from
-# /proc rather than taken from `ps %cpu`, which reports the average since the
-# process STARTED -- useless for a service that has been up for hours.
+head1 "0. second writer on rt/lowcmd"
+# The question is NOT "is the factory process running". Measured on the robot
+# 2026-09-25: developer mode does NOT stop
+# /unitree/module/master_service/master_service -- it keeps a live pid after the
+# handheld switch. So a name match answers yes forever, and a check that always
+# fires is worse than no check: it teaches you to skip a safety gate.
+#
+# What matters is whether anything is PUBLISHING on the topic we publish on.
+# probe_lowcmd measures that directly. Prefer it; fall back to the name match
+# plus an activity sample, and say plainly that the fallback is a guess.
+LOWCMD_PROBE=""
+for c in "$R1_DEPLOY_ROOT/tools/probe_cpp/build/probe_lowcmd" \
+         "$R1_DEPLOY_ROOT/tools/probe_cpp/probe_lowcmd"; do
+  [[ -x "$c" ]] && { LOWCMD_PROBE="$c"; break; }
+done
+
+# CPU time a pid burns over a 1 s window, in percent of one core. Read from /proc
+# rather than taken from `ps %cpu`, which reports the average since the process
+# STARTED -- useless for a service that has been up for hours.
 cpu_pct_1s() {
   local pid=$1 a b
   a=$(awk '{print $14+$15}' "/proc/$pid/stat" 2>/dev/null) || return 1
   sleep 1
   b=$(awk '{print $14+$15}' "/proc/$pid/stat" 2>/dev/null) || return 1
-  # $14+$15 are utime+stime in clock ticks; USER_HZ is 100 on this kernel, so the
-  # delta over one second already is a percentage of one core.
+  # $14+$15 are utime+stime in clock ticks; USER_HZ is 100 here, so the delta
+  # over one second already is a percentage of one core.
   echo $(( b - a ))
 }
 
-FACTORY=$(pgrep -a -f 'master_service|sport_mode|ai_sport|motion_switcher' 2>/dev/null | grep -v preflight || true)
-if [[ -n "$FACTORY" ]]; then
-  fail "a factory motion process appears to be running:"
-  printf '%s\n' "$FACTORY" | sed 's/^/          /'
-  info "switch to developer mode on the handheld BEFORE starting the stack."
-  info "L2+B (damping) is a resting state only -- it also makes the factory"
-  info "service the active writer, so do not use it while running."
-  # Whether the process EXISTS and whether it is WRITING are different questions,
-  # and only the second one matters. If developer mode leaves the service running
-  # but idle, a name match alone would fail forever and teach you to ignore this
-  # check -- which is the worst possible outcome for a safety gate. So sample what
-  # it is actually doing: a 500 Hz DDS writer burns measurable CPU; an idle
-  # service sits near zero.
-  info ""
-  info "sampling what it is actually doing (1 s)..."
-  BUSY=0
-  while read -r pid _; do
-    [[ -n "$pid" ]] || continue
-    PCT=$(cpu_pct_1s "$pid") || continue
-    info "  pid $pid: ${PCT}% of one core over 1 s"
-    (( PCT >= 3 )) && BUSY=1
-  done <<<"$FACTORY"
-  if (( BUSY == 1 )); then
-    info "  => that is an ACTIVE writer. Do not start the stack."
+FACTORY=$(pgrep -a -f 'master_service|sport_mode|ai_sport|motion_switcher' 2>/dev/null \
+          | grep -v preflight || true)
+
+if [[ -n "$LOWCMD_PROBE" ]]; then
+  info "measuring rt/lowcmd directly (3 s, read-only)..."
+  if PROBE_OUT=$("$LOWCMD_PROBE" --seconds 3 2>&1); then
+    pass "nothing is writing rt/lowcmd -- no second writer"
+    [[ -n "$FACTORY" ]] && {
+      info "(master_service IS running -- expected, it survives developer mode."
+      info " What matters is that it is not publishing, and it is not.)"
+    }
   else
-    info "  => near-idle. It may already be released (developer mode can leave the"
-    info "     service running but not writing), or it may simply be between"
-    info "     bursts. This is a PROXY, not proof:"
-    info "       * if you have switched to developer mode on the handheld, a"
-    info "         near-idle master_service is expected and this FAIL is the"
-    info "         name match being conservative -- proceed, and watch the first"
-    info "         seconds of the stack for sway/grinding/tremor."
-    info "       * if you have NOT switched yet, switch now and re-run."
-    info "     The only real answer is to watch rt/lowcmd for a second writer, or"
-    info "     gate on MotionSwitcherClient::CheckMode(). Neither is built yet."
+    RC=$?
+    if (( RC == 2 )); then
+      warn "probe_lowcmd refused to measure:"
+      printf '%s\n' "$PROBE_OUT" | tail -3 | sed 's/^/          /'
+    else
+      fail "SOMETHING ELSE IS WRITING rt/lowcmd -- do not start the stack"
+      printf '%s\n' "$PROBE_OUT" | grep -E 'messages|rate:' | sed 's/^/          /'
+      info "If the handheld says developer mode, the mode did not take. Switch"
+      info "again and re-run. Two writers at 500 Hz overwrite each other, and the"
+      info "symptoms all look like a sim2real gap."
+    fi
   fi
 else
-  pass "no factory motion process matched by name"
-  warn "that is weak evidence. Name matching is not mode checking -- confirm"
-  info "developer mode on the handheld anyway. (The real fix is a"
-  info "MotionSwitcherClient::CheckMode() gate in the bridge; not built yet.)"
+  warn "probe_lowcmd not built -- falling back to a process-name guess"
+  info "build it once, and this check becomes a measurement instead:"
+  info "  bash \$R1_DEPLOY_ROOT/tools/probe_cpp/build.sh"
+  if [[ -n "$FACTORY" ]]; then
+    info ""
+    info "a factory motion process is running:"
+    printf '%s\n' "$FACTORY" | sed 's/^/          /'
+    info "That alone is NOT a failure. Developer mode leaves master_service"
+    info "running; only its WRITING matters. Sampling what it is doing (1 s)..."
+    BUSY=0
+    while read -r pid _; do
+      [[ -n "$pid" ]] || continue
+      PCT=$(cpu_pct_1s "$pid") || continue
+      info "  pid $pid: ${PCT}% of one core"
+      (( PCT >= 3 )) && BUSY=1
+    done <<<"$FACTORY"
+    if (( BUSY == 1 )); then
+      fail "it is burning CPU like an active 500 Hz writer -- do not start the stack"
+      info "switch to developer mode on the handheld and re-run."
+    else
+      warn "near-idle, which is what a released service looks like. PROXY ONLY."
+      info "Confirm developer mode on the handheld, build probe_lowcmd, and watch"
+      info "the first seconds of the stack for sway/grinding/tremor."
+    fi
+  else
+    warn "no factory motion process matched by name -- weak evidence either way"
+    info "confirm developer mode on the handheld."
+  fi
 fi
+info ""
+info "L2+B (damping) is a resting state only -- it also makes the factory service"
+info "the active writer, so do not use it while running."
 
 # ---------------------------------------------------------------------------
 head1 "1. environment"
