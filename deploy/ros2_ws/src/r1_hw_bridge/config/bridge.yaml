@@ -18,3 +18,19 @@
     target_timeout_ms: 60.0  # 3 control cycles at 50 Hz
     min_control_rate_hz: 45.0
     auto_recover: false      # recovery is explicit, via ~/resume
+    # Velocity commands arrive on ~/cmd_vel as [vx, vy, wz] and go STRAIGHT into
+    # the velocity_commands observation term. Nothing downstream checks them: the
+    # policy cannot signal "I was not trained for this", it just emits confident
+    # joint targets for a state it has never seen.
+    cmd_vel_timeout_ms: 500.0   # deadman: stale commands decay to zero, not hold
+    # The envelope below is what training actually covered -- the end point of
+    # Week04's command curriculum (COMMAND_RANGES_FINAL, tasks/r1_flat/flat_env_cfg.py).
+    # It is not a comfort limit.
+    #   vx  forward only, up to 1.0 m/s. Reverse was never trained.
+    #   vy  pinned to 0 for ALL of training. Sideways is not weakly trained, it
+    #       does not exist in the distribution -- so it is refused, not clamped.
+    #   wz  turning both ways, +-0.5 rad/s.
+    # Widen only for a deliberate out-of-distribution experiment.
+    cmd_vel_x_range: [0.0, 1.0]
+    cmd_vel_y_range: [0.0, 0.0]
+    cmd_vel_yaw_range: [-0.5, 0.5]

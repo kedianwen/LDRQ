@@ -42,6 +42,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -116,6 +117,33 @@ public:
     min_rate_hz_ = declare_parameter<double>("min_control_rate_hz", 45.0);
     auto_recover_ = declare_parameter<bool>("auto_recover", false);
     cmd_vel_timeout_ms_ = declare_parameter<double>("cmd_vel_timeout_ms", 500.0);
+    // The command envelope the policy was actually TRAINED on -- the end point of
+    // Week04's command curriculum (COMMAND_RANGES_FINAL in
+    // tasks/r1_flat/flat_env_cfg.py), not a comfort limit. Outside it the policy
+    // is extrapolating, and a biped extrapolating is a fall.
+    //
+    // Note the y range: lin_vel_y was pinned to 0 for the WHOLE of training, so
+    // sideways is not "weakly trained", it is never-seen. It gets its own message
+    // below rather than being lumped in with a clamp.
+    //
+    // Overridable, because an out-of-distribution command is a legitimate
+    // experiment -- but it has to be asked for, not arrived at by typing a number.
+    cmd_vel_x_range_ = declare_parameter<std::vector<double>>(
+      "cmd_vel_x_range", {0.0, 1.0});
+    cmd_vel_y_range_ = declare_parameter<std::vector<double>>(
+      "cmd_vel_y_range", {0.0, 0.0});
+    cmd_vel_yaw_range_ = declare_parameter<std::vector<double>>(
+      "cmd_vel_yaw_range", {-0.5, 0.5});
+    for (auto * r : {&cmd_vel_x_range_, &cmd_vel_y_range_, &cmd_vel_yaw_range_}) {
+      if (r->size() != 2 || (*r)[0] > (*r)[1]) {
+        throw std::invalid_argument(
+          "cmd_vel_*_range must be [min, max] with min <= max");
+      }
+    }
+    RCLCPP_INFO(get_logger(),
+      "cmd_vel envelope (as trained): vx [%.2f, %.2f]  vy [%.2f, %.2f]  wz [%.2f, %.2f]",
+      cmd_vel_x_range_[0], cmd_vel_x_range_[1], cmd_vel_y_range_[0],
+      cmd_vel_y_range_[1], cmd_vel_yaw_range_[0], cmd_vel_yaw_range_[1]);
 
     const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
     obs_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/obs", qos);
@@ -315,8 +343,44 @@ private:
                            "~/cmd_vel expects 3 floats [vx, vy, wz]");
       return;
     }
+
+    // Clamp to the trained envelope. This command goes STRAIGHT into the
+    // velocity_commands observation term -- there is nothing downstream that
+    // checks it, and the policy has no way to signal "I was not trained for
+    // this". It just produces confident joint targets for a state it has never
+    // seen. So the check belongs here, and it has to be loud: a silently
+    // accepted out-of-range command is the kind of thing that reads as a
+    // sim2real gap afterwards.
+    const std::array<const std::vector<double> *, 3> ranges{
+      &cmd_vel_x_range_, &cmd_vel_y_range_, &cmd_vel_yaw_range_};
+    static constexpr const char * kAxis[3] = {"vx", "vy", "wz"};
+    std::array<float, 3> want{m.data[0], m.data[1], m.data[2]};
+    std::array<float, 3> got = want;
+    for (int i = 0; i < 3; ++i) {
+      const auto lo = static_cast<float>((*ranges[i])[0]);
+      const auto hi = static_cast<float>((*ranges[i])[1]);
+      got[i] = std::min(hi, std::max(lo, want[i]));
+      if (got[i] == want[i]) {continue;}
+      if (lo == 0.0f && hi == 0.0f) {
+        // Not "outside the range" -- this axis was pinned to zero for the whole
+        // of training, so there is no range to be outside of.
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+          "~/cmd_vel %s=%.3f ignored: this axis was pinned to 0 for ALL of "
+          "training, so the policy has never seen a non-zero value. Commanding "
+          "it is not a small extrapolation, it is a state that does not exist in "
+          "the training distribution. Override with the %s range parameter only "
+          "if that is the experiment you mean to run.",
+          kAxis[i], static_cast<double>(want[i]), kAxis[i]);
+      } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+          "~/cmd_vel %s=%.3f clamped to %.3f -- trained range is [%.2f, %.2f]",
+          kAxis[i], static_cast<double>(want[i]), static_cast<double>(got[i]),
+          static_cast<double>(lo), static_cast<double>(hi));
+      }
+    }
+
     std::lock_guard<std::mutex> lock(target_mutex_);
-    cmd_vel_ = {m.data[0], m.data[1], m.data[2]};
+    cmd_vel_ = {got[0], got[1], got[2]};
     last_cmdvel_time_ = steady_clock::now();
     have_cmdvel_ = true;
   }
@@ -678,6 +742,7 @@ private:
   std::string degrade_reason_;
   std::atomic<bool> running_{true};
   std::thread cmd_thread_;
+  std::vector<double> cmd_vel_x_range_, cmd_vel_y_range_, cmd_vel_yaw_range_;
   uint64_t cmd_count_ = 0, obs_count_ = 0, cmd_window_count_ = 0, status_ticks_ = 0;
   int slow_windows_ = 0;
   bool rate_primed_ = false;
