@@ -2,19 +2,38 @@
 
 Working directory for the R1 Sim2Real project: the Isaac Lab training side (R1
 asset pipeline, manager-based task, verification scripts) and the on-robot
-deployment side (ONNX → TensorRT → C++/ROS 2). Practical counterpart to the
-12-week dev plan in `~/kdw/development plan/`.
+deployment side (ONNX → TensorRT → C++/ROS 2), plus the packaging and command
+layers built on top of it. Practical counterpart to the plans in `~/kdw/`:
+`development plan/` holds W01–W08, `stage_plan/` holds everything after.
 
-**Status: W01–W07 closed. W08 (the M2 gate) in progress.** The policy walks on
-the real robot under protection and recovers from being pushed; what is left for
-M2 is walking off the gantry for 60 s (PG-2), INT8 quantisation and its
-behavioural acceptance.
+**Status: W01–W07 closed. W08 (the M2 gate) in progress. INT8 quantisation cut
+2026-09-26.** The policy walks on the real robot under protection and recovers
+from being pushed. What is left for M2 is walking off the gantry for 60 s (PG-2)
+and one stability-domain figure. INT8 was dropped on measured grounds — three
+independent measurements say it buys nothing on this model (see *What each week
+produced* below) — so M3's controlled perturbation is **actuator-gain error
+(`kp_scale`)** instead of numeric precision. The methodology is unchanged; only
+the independent variable moved.
 
-| Milestone | Weeks | Verdict |
+Work from W08 on is organised as four **stages** rather than weeks, because
+cutting INT8 made the original W09–W12 files describe a different project. The
+stage plans live in `~/kdw/stage_plan/` and the decision record in
+`~/kdw/development plan/重构方案_W09-W12_运控收尾与LLM指令层_2026-09-26.md` --
+**both outside this repository and not published**, like the rest of `~/kdw/`.
+This README is self-contained for everything a reader of the repo needs.
+
+| Milestone | Span | Verdict |
 |---|---|---|
 | M1 · training | W01–W04 | **passed** 2026-08-19 — PG-1 met with 4x margin |
-| M2 · deployment + quantisation | W05–W08 | in progress — real-robot walking achieved, PG-2 and INT8 open |
-| M3 · robustness | W09–W12 | not started |
+| M2 · deployment | W05–W08 | in progress — real-robot walking achieved; PG-2 open, INT8 cut with evidence |
+| M3 · robustness + command layer | stages A–D | not started |
+
+| Stage | What it delivers | State |
+|---|---|---|
+| **A** | `kp_scale` stability domain (sim curve + real points on one axis), PG-2 or the degrade line, `v_cal` calibration, report/repo/video/DoD | blocked on a dev-box reboot |
+| **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance | code written and self-tested, awaiting the robot |
+| **C** | LLM command layer: Chinese instruction → grammar-constrained JSON → execution → report | not started |
+| **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
 
 ## Layout
 
@@ -33,6 +52,14 @@ behavioural acceptance.
 - `deploy/` — the on-robot half: ONNX export, TensorRT engine builder and parity
   checker, the C++/ROS 2 hardware bridge and policy runner, and the Python probes
   that measure the robot. Self-contained and sudo-free. See `deploy/README.md`.
+- `policy_pack/` — packaging, so that swapping the trained policy is one command
+  instead of edits to three configs and a C++ header. Builds a self-describing
+  *bundle* (ONNX + interface + gains + command envelope + its own parity fixture)
+  and installs it on the robot in eight checked steps. See `policy_pack/README.md`.
+- `mission_ctl/` — the command layer: drive the robot by time, angle and speed
+  over the bridge's existing topics, with the turn closed on the IMU heading and
+  the distance openly labelled as open-loop. No bridge changes, no LLM.
+  See `mission_ctl/README.md`.
 
 Week-by-week execution records and the on-robot step-by-step documents live
 outside this repository, in `~/kdw/experiment_record/` and `~/kdw/`.
@@ -54,15 +81,38 @@ silent — the chain reports success and returns a plausible wrong answer.
 | **W06** · C++/ROS 2 node + hanging dry run | Hardware bridge, watchdog, fault injection, 7/7 exit criteria. The robot walks under protection. | Two defects that produced **no error anywhere**: (1) **`--fp32` was never fp32** — TensorRT enables `kTF32` by default, rounding GEMM inputs to a 10-bit mantissa (FP16's width), and because the flag only *permits* TF32 the choice is made by build-time kernel timing, so the same command passed once at 1.144e-05 and failed later at 1.095e-02 on the same machine and ONNX. (2) **PD gains are per joint**, six groups, not one scalar — an export omission left the legs undamped and the head vibrating. |
 | **W07** · walking on the real robot | Walking in developer mode with push recovery. Setpoint-lag instrumentation in the bridge, stance attribution tooling. | **Developer mode is a second writer problem.** Without switching the handheld first, the factory motion service keeps writing `rt/lowcmd` at 500 Hz against us; the symptoms — torso sway, joint grinding, tremor, stance not held — all look exactly like a sim2real gap, and cost a full session. Two measurements then *cancelled* planned work: setpoint lag is **1.3 ms = 0.065 control steps** against a trained range of {0,1} steps, so no delay compensation; and **FP16 buys nothing** (1.717e-05, FP32's order, and 171 µs, not faster) because at batch 1 this 90k-parameter MLP is kernel-launch bound and the builder keeps FP32 kernels. Narrow stance was attributed to the hardware side with saturation ruled out arithmetically — 6.45 N·m against a 60 N·m rating, 10.8%. |
 
-**W08 (in progress)** — INT8 PTQ with a calibration set recorded off the walking
-robot, three-layer behavioural acceptance, a FP32/FP16/INT8 benchmark, and the
-PG-2 sprint. Two things already worth recording: the plan's closed-loop
-no-regression gate is **not executable as literally written**, because a
-TensorRT plan is not portable — the INT8 engine exists only on the Orin and the
-simulator only on the dev box — so it runs against a proxy engine built from the
-same calibration set, labelled as such. And INT8 is **not expected to be faster
-or smaller** here; its value is closing FR-Q3's deployment loop and giving M3 a
-controlled, physically real perturbation source (FR-R2/PG-5).
+**W08 (in progress) — and why INT8 was cut.** The week was planned around INT8
+PTQ, a three-layer behavioural acceptance and a FP32/FP16/INT8 benchmark. It is
+now being closed as a *conclusion* rather than as unfinished work, on three
+independent measurements:
+
+1. **It cannot buy time.** This policy is 90,648 parameters at batch 1, so a step
+   is ~180 kFLOP against ~900 µs of wall time — over 99.9% of a step is kernel
+   launch overhead. FP16 measured 1.717e-05 (FP32's order) and 171 µs (not
+   faster), because `kFP16`/`kINT8` *permit* rather than require, and TensorRT
+   picked FP32 kernels by build-time timing.
+2. **It cannot buy space.** FP16 made the engine **51.1% larger**
+   (966,887 → 1,461,299 B): the arithmetic saving does not cover the extra
+   reformat layers and duplicated weights.
+3. **The calibration set is not defensible.** The observation is five stacked
+   frames (80% overlap between neighbours), so 60 s of single-speed straight
+   walking is one operating point and ~72 gait cycles; covering the vx×wz grid
+   needs several real walking segments, and real walking is not off the gantry
+   yet.
+
+So FR-Q3 is recorded as *waived with evidence* and FR-Q4 as *satisfied at two
+precisions*. A related finding kept from the same week: the plan's closed-loop
+gate was **not executable as literally written**, because a TensorRT plan is not
+portable — the engine exists only on the Orin and the simulator only on the dev
+box.
+
+M3 keeps FR-R2's methodology — one controlled, physically real perturbation,
+swept in simulation and spot-checked on the robot — and changes the knob to
+**`kp_scale`**, the actuator-gain error. That knob is already a launch argument
+on the robot, it is one of the five domain-randomisation items, and unlike INT8
+it actually moves the metrics. Because the same knob sweeps on both sides, one
+figure settles FR-R2/PG-5 (the curve) and FR-R4/PG-6 (the offset between the
+curve and the real points) at once.
 
 ## Environment
 

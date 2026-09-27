@@ -42,6 +42,19 @@ ros2 launch r1_policy_runner policy_node.launch.py \
 | `interface/policy_interface.{json,md}` | generated deployment contract (tracked) |
 | `artifacts/` | ONNX, fixture, engines (git-ignored) |
 
+Robot-side measurement and commissioning tools (W07 onward). All read the
+bridge's topics or files; none of them writes `rt/lowcmd`.
+
+| path | role |
+|---|---|
+| `tools/w08_preflight.sh` | pre-run checklist: clock lock, second writer on `rt/lowcmd`, stale install, ROS env mismatch across terminals; `--live` diagnoses an empty topic graph. Exit code = FAIL count |
+| `tools/probe_cpp/probe_lowcmd` | read-only `rt/lowcmd` subscriber: is anyone else writing? (developer mode does **not** stop `master_service`, so traffic is the criterion, not process names) |
+| `tools/probe_cpp/probe_lowstate` | read-only `rt/lowstate` probe; `--map` is how the slot map was measured |
+| `tools/probe_cpp/walk_metrics.py` | records one walking segment and reports survival, tracking, measured torque, smoothness. Refuses to report achieved speed without a tape measurement |
+| `tools/probe_cpp/gain_sweep_real.py` | stage A: plans the `kp_scale` points and reduces the recordings into the real-robot stability-domain interval, marking each edge as *bounded* (a point beyond it failed) or *not bounded* (testing stopped there) |
+| `tools/probe_cpp/vcal.py` | stage A: tape + stopwatch readings → calibrated speed with a measured error bar, and a test of whether achieved speed is proportional to commanded (the assumption `mission_ctl` makes) |
+| `tools/record_calib_obs.py`, `tools/bench_precision.py` | INT8 calibration recorder and FP32/FP16/INT8 benchmark. **Kept but unused**: INT8 was cut on 2026-09-26 (see below); `r1_build_engine --int8` still works and is the evidence path for that decision |
+
 Three executables:
 
 - **`r1_build_engine`** — ONNX → serialised engine. Must run on the machine that
@@ -51,6 +64,24 @@ Three executables:
 - **`r1_policy_node`** — the ROS 2 node. `mode:=subscribe` reads one 85-float
   sensor frame per cycle from `~/obs`; `mode:=selftest` self-drives at 50 Hz
   with no robot attached (bench rehearsal for W06's hanging dry-run).
+
+## What sits on top of this
+
+`deploy/` is the runtime. Two sibling directories package it, and neither
+requires a change here:
+
+- **`../policy_pack/`** — turns "swap the trained policy" into one command. It
+  builds a bundle (ONNX + `policy_interface.json` + `actuator_gains.json` +
+  `command_envelope.json` + provenance + its own parity fixture), then on the
+  robot regenerates `joint_map.hpp` and both node yamls from it, rebuilds, builds
+  the engine and gates on parity against the bundle's own fixture. The bundle
+  deliberately does **not** carry the unitree_hg slot map: that is a property of
+  the robot, established by measurement.
+- **`../mission_ctl/`** — drives the robot by time, angle and speed using the
+  topics the bridge already has (`~/cmd_vel` out, `~/imu` and `~/status` in).
+  Turning is closed-loop on the IMU heading; distance is open-loop
+  time × a calibrated speed, and is reported with an error bar because there is
+  no base linear velocity in the observation and no odometry topic.
 
 ## Two findings that change how W05/W06 must be done
 
@@ -99,10 +130,21 @@ Both numbers are comfortable against the 20 ms budget (the honest one is ~1%),
 but quote the 50 Hz column. On Orin the equivalent knobs are `nvpmodel` and
 `jetson_clocks`, and they should be set before latency is characterised there.
 
-A corollary for W08: at batch 1 this model's latency is dominated by launch
-overhead, not arithmetic — FP16 produced **bit-identical** output to FP32 here
-because TensorRT chose FP32 kernels as faster. Expect INT8 quantisation to buy
-memory and power, not milliseconds.
+A corollary that ended up deciding W08: at batch 1 this model's latency is
+dominated by launch overhead, not arithmetic — FP16 produced **bit-identical**
+output to FP32 here because TensorRT chose FP32 kernels as faster. On the Orin
+that held (1.717e-05, 171 µs — not faster) **and** the FP16 engine came out
+**51.1% larger** (966,887 → 1,461,299 B), because the arithmetic saving does not
+cover the extra reformat layers and duplicated weights.
+
+**So INT8 was cut on 2026-09-26** rather than pursued: it cannot buy time, there
+is no evidence it buys space, and a defensible calibration set needs several real
+walking segments that do not exist yet (the observation is five stacked frames
+with 80% overlap, so 60 s of single-speed walking is one operating point). FR-Q3
+is waived with evidence; FR-Q4 is satisfied at two precisions. M3's controlled
+perturbation is `kp_scale` — the actuator-gain error, already a launch argument
+on the bridge — instead of numeric precision. See the repo README and
+`~/kdw/stage_plan/`.
 
 ## Porting to the robot (W06)
 

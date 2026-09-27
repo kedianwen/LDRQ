@@ -1,8 +1,14 @@
 # experiments/
 
 Git-tracked training-run records, for comparing runs across ablations
-(Week03 first training, Week04 DR ablation, Week10 quantization x
-robustness, etc.) without needing to keep every raw artifact around.
+(Week03 first training, Week04 DR ablation, and stage A's `kp_scale`
+robustness sweep) without needing to keep every raw artifact around.
+
+The originally planned quantization x robustness comparison is not coming:
+INT8 was cut on 2026-09-26 and the perturbation axis is now actuator-gain
+error. See the repo README. Note that the gain sweep needs **no retraining** --
+it re-evaluates one checkpoint at different gains -- so it produces sweep
+results under `outputs/`, not new rows here.
 
 This is deliberately separate from `logs/` (git-ignored): `logs/rsl_rl/<task>/<run_id>/`
 holds the *raw* rsl_rl output -- model checkpoints (`*.pt`), full tensorboard
