@@ -1,0 +1,20 @@
+# v_cal readings -- one run per line: vx_commanded  distance_m  seconds
+#
+# Tape measure and stopwatch. There is no base linear velocity in the 425-dim
+# observation and no odometry topic, so this file is the ONLY source of achieved
+# walking speed. Three runs per commanded speed: the spread matters as much as
+# the mean, because it becomes the error bar on every distance the robot reports.
+#
+# Uncomment and fill as you go. An example of a filled line:
+#   0.3   4.20   15.0
+#
+# vx_commanded   distance_m   seconds
+# 0.3
+# 0.3
+# 0.3
+# 0.5
+# 0.5
+# 0.5
+# 0.8
+# 0.8
+# 0.8
