@@ -1,0 +1,39 @@
+# Mission-layer settings. Flat key: value on purpose -- parsed by a ten-line
+# reader so the robot needs no yaml package.
+#
+# The command ENVELOPE is deliberately not here. It is read from the installed
+# bundle's command_envelope.json, or failing that from the bridge's own
+# bridge.yaml, so there is exactly one place that says what training covered.
+
+# Default speeds when a command does not name one.
+cruise_vx: 0.4           # m/s, inside the trained [0, 1.0]
+cruise_wz: 0.4           # rad/s, inside the trained [-0.5, 0.5]
+
+# MEASURED forward speed at cruise_vx, in m/s. There is no base linear velocity
+# in the 425-dim observation and no odometry topic, so this is the only thing
+# that turns a distance into a time -- and it has to come from a tape measure and
+# a stopwatch, not from the commanded value.
+#
+#   v_cal: unmeasured     -> distance commands are REFUSED, durations still work
+#   v_cal: 0.35           -> "walk 10m" becomes 28.6 s, reported as 10 +- 1.5 m
+v_cal: unmeasured
+v_cal_rel_err: 0.15      # relative error to report on every distance estimate
+
+# Ramp between primitives. Training resampled the velocity command every 10 s as
+# a step, so steps are in distribution; a 0.5 s ramp costs nothing and keeps the
+# first control cycles of each primitive out of the sharpest transient.
+ramp_s: 0.5
+
+# Floor on primitive length, same reason: chains of very short primitives are a
+# transient the policy saw rarely.
+min_primitive_s: 2.0
+
+# Budgets. A plan that exceeds any of these is refused whole, never truncated.
+max_total_s: 120.0
+max_total_m: 30.0
+max_prims: 20
+
+# Closed-loop turning, from the IMU quaternion on ~/imu.
+yaw_tol_deg: 3.0         # acceptance band; the controller aims AT the target
+turn_timeout_factor: 2.0 # abort a turn that takes this multiple of its estimate
+settle_s: 1.0            # hold zero this long before declaring the plan done
