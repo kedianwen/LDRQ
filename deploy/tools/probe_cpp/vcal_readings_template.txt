@@ -1,20 +1,32 @@
+# NOT RUN in stage A: the speed test was dropped on 2026-09-28 (no venue; the
+# task needs distance only to "a few metres"), and mission_ctl assumes ground
+# speed = command (v_cal: commanded). Kept for if a measurement is ever made.
+#
 # v_cal readings -- one run per line: vx_commanded  distance_m  seconds
 #
-# Tape measure and stopwatch. There is no base linear velocity in the 425-dim
-# observation and no odometry topic, so this file is the ONLY source of achieved
-# walking speed. Three runs per commanded speed: the spread matters as much as
-# the mean, because it becomes the error bar on every distance the robot reports.
+# Tape measure and stopwatch, UNTETHERED (gantry drag biases speed low). There is
+# no base linear velocity in the observation and no odometry topic, so this file
+# is the ONLY source of achieved walking speed.
 #
-# Uncomment and fill as you go. An example of a filled line:
-#   0.3   4.20   15.0
+# FLYING START: mark line A about 2 m from where the robot starts, and line B a
+# fixed L metres beyond A (L = 5 m, or 3 m in a short room). distance_m is always
+# L. seconds is the stopwatch time from the torso crossing A to the torso crossing
+# B. Starting the clock from standstill would fold the ramp and the first steps'
+# transient into the speed.
+#
+# Discard a run (do not write it here) if the robot drifted more than ~0.3 m
+# sideways by line B: heading is open loop while walking straight.
+#
+# Three runs per commanded speed: the spread becomes the error bar on every
+# distance the robot will report. Run 0.8 only if 0.5 was clean.
 #
 # vx_commanded   distance_m   seconds
-# 0.3
-# 0.3
-# 0.3
-# 0.5
-# 0.5
-# 0.5
-# 0.8
-# 0.8
-# 0.8
+# 0.3   5.0
+# 0.3   5.0
+# 0.3   5.0
+# 0.5   5.0
+# 0.5   5.0
+# 0.5   5.0
+# 0.8   5.0
+# 0.8   5.0
+# 0.8   5.0
