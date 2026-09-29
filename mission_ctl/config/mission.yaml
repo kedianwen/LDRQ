@@ -9,15 +9,21 @@
 cruise_vx: 0.4           # m/s, inside the trained [0, 1.0]
 cruise_wz: 0.4           # rad/s, inside the trained [-0.5, 0.5]
 
-# MEASURED forward speed at cruise_vx, in m/s. There is no base linear velocity
-# in the 425-dim observation and no odometry topic, so this is the only thing
-# that turns a distance into a time -- and it has to come from a tape measure and
-# a stopwatch, not from the commanded value.
+# Ground speed, the only thing that turns a distance into a time: there is no
+# base linear velocity in the 425-dim observation and no odometry topic.
 #
+#   v_cal: commanded      -> ground speed ASSUMED equal to the command. "walk 10m@0.5"
+#                            becomes 20 s, reported as "~10 m if speed = command;
+#                            not measured" -- no error bar, because none was measured
+#   v_cal: 0.35           -> MEASURED at cruise_vx (tape + stopwatch, vcal.py);
+#                            "walk 10m" becomes 28.6 s, reported as 10 +- 1.5 m
 #   v_cal: unmeasured     -> distance commands are REFUSED, durations still work
-#   v_cal: 0.35           -> "walk 10m" becomes 28.6 s, reported as 10 +- 1.5 m
-v_cal: unmeasured
-v_cal_rel_err: 0.15      # relative error to report on every distance estimate
+#
+# commanded since 2026-09-28: there is no venue for the speed test, and the task
+# needs distance only at the level of "a few metres". Replace with a number if a
+# measurement is ever made; nothing else changes.
+v_cal: commanded
+v_cal_rel_err: 0.15      # used only with a measured v_cal
 
 # Ramp between primitives. Training resampled the velocity command every 10 s as
 # a step, so steps are in distribution; a 0.5 s ramp costs nothing and keeps the

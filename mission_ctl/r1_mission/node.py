@@ -73,6 +73,7 @@ def resolve_envelope(explicit=None):
 
 
 UNMEASURED = ("", "none", "null", "unmeasured", "tbd")
+ASSUMED = ("commanded", "assumed")
 
 
 def limits_from_cfg(cfg):
@@ -84,12 +85,17 @@ def limits_from_cfg(cfg):
             setattr(lim, key, float(cfg[key]))
     if "max_prims" in cfg:
         lim.max_prims = int(cfg["max_prims"])
-    # v_cal is the one field that is allowed to be absent, and its absence has a
-    # meaning: distance commands are refused until somebody measures the speed
-    # with a tape and a stopwatch. A config that silently defaulted it to the
-    # commanded velocity would turn "10 m" into a number that looks measured.
-    raw = cfg.get("v_cal", "")
-    lim.v_cal = None if str(raw).strip().lower() in UNMEASURED else float(raw)
+    # v_cal has three states and each one means something different:
+    #   a number     measured ground speed at cruise_vx; distances carry +-rel_err
+    #   commanded    ground speed ASSUMED equal to the command (decision
+    #                2026-09-28: no venue to measure, and the task does not need
+    #                precise distance). Distances are allowed and labelled as such.
+    #   unmeasured   distance commands are refused.
+    # Absent means unmeasured, never commanded: a config must say the assumption
+    # out loud, or "10 m" would turn into a number that looks measured.
+    raw = str(cfg.get("v_cal", "")).strip().lower()
+    lim.v_cal_assumed = raw in ASSUMED
+    lim.v_cal = None if (raw in UNMEASURED or lim.v_cal_assumed) else float(raw)
     return lim
 
 
@@ -120,16 +126,30 @@ def dry_run(prims, limits, hz):
 def live_run(prims, limits, hz, allow_second_writer=False):
     import rclpy
     from rclpy.node import Node
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import Float32MultiArray, String
 
     class Mission(Node):
         def __init__(self):
             Node.__init__(self, "r1_mission")
             self.pub = self.create_publisher(Float32MultiArray, CMD_TOPIC, 10)
-            self.create_subscription(Float32MultiArray, IMU_TOPIC, self.on_imu, 10)
-            self.create_subscription(String, STATUS_TOPIC, self.on_status, 10)
+            # The bridge publishes its debug topics BEST_EFFORT (KeepLast(1)). A
+            # RELIABLE subscription does not match a best-effort publisher, so with
+            # the default profile this subscription silently receives nothing and
+            # every closed-loop turn aborts with "no IMU yaw".
+            self.create_subscription(
+                Float32MultiArray, IMU_TOPIC, self.on_imu,
+                QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT))
+            # The bridge publishes ~/status reliable + transient_local, once a
+            # second. Matching that durability delivers the latched last value on
+            # connect instead of up to a second of "unknown".
+            self.create_subscription(
+                String, STATUS_TOPIC, self.on_status,
+                QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
+                           durability=DurabilityPolicy.TRANSIENT_LOCAL))
             self.tracker = Y.YawTracker()
             self.bridge_state = "UNKNOWN"
+            self.last_status = None
             self.ex = ex.Executor(prims, limits)
             self.t0 = None
             self.msg = Float32MultiArray()
@@ -144,6 +164,7 @@ def live_run(prims, limits, hz, allow_second_writer=False):
             parts = str(m.data).split()
             if parts:
                 self.bridge_state = parts[0]
+                self.last_status = time.monotonic()
 
         def send(self, vx, vy, wz):
             self.msg.data = [float(vx), float(vy), float(wz)]
@@ -155,18 +176,34 @@ def live_run(prims, limits, hz, allow_second_writer=False):
                 self.t0 = now
             t = now - self.t0
             yawv = self.tracker.total if self.tracker.ready else None
-            out = self.ex.step(t, yaw=yawv, bridge_state=self.bridge_state)
+            state = self.bridge_state
+            # 1 Hz publisher: three silent seconds means the bridge is gone or
+            # this process has lost it. Either way, stop trusting the last value.
+            if self.last_status is not None and now - self.last_status > 3.0:
+                state = "NO_STATUS"
+            out = self.ex.step(t, yaw=yawv, bridge_state=state)
             self.send(out.vx, out.vy, out.wz)
             if out.event:
                 self.get_logger().info(out.event)
             if out.state in (ex.DONE, ex.ABORTED):
-                # Zeros on the way out, then let the deadman be the backstop.
-                for _ in range(3):
-                    self.send(0.0, 0.0, 0.0)
-                raise KeyboardInterrupt
+                self.finished = True
 
-    rclpy.init()
+    # Take SIGINT ourselves. From humble on, rclpy's own handler shuts the context
+    # down on Ctrl-C, after which no publish succeeds -- so the "send zeros on the
+    # way out" below silently did nothing and the robot kept its last command
+    # until the bridge's 500 ms deadman caught it (measured against a stand-in:
+    # last cmd_vel after SIGINT was vx=0.30). Foxy has no signal_handler_options,
+    # hence the fallback; there the deadman remains the backstop.
+    import signal
+    stop = {"flag": False}
+    try:
+        from rclpy.signals import SignalHandlerOptions
+        rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    except (ImportError, TypeError):
+        rclpy.init()
+    signal.signal(signal.SIGINT, lambda *_: stop.__setitem__("flag", True))
     node = Mission()
+    node.finished = False
     if not allow_second_writer and hasattr(node, "count_publishers"):
         # One writer on cmd_vel at a time. Two schedulers fighting over the same
         # topic is indistinguishable, from the robot's side, from a policy that
@@ -181,17 +218,21 @@ def live_run(prims, limits, hz, allow_second_writer=False):
             rclpy.shutdown()
             return 2
     print("waiting for the bridge... (it must reach RUNNING before the plan starts)")
+    while rclpy.ok() and not stop["flag"] and not node.finished:
+        rclpy.spin_once(node, timeout_sec=0.05)
+    if stop["flag"] and node.ex.state not in (ex.DONE, ex.ABORTED):
+        node.ex._abort("operator interrupt (Ctrl-C)", 0.0)
+        node.get_logger().warn("interrupted -- commanding zero")
+    # Zero, several times, and give the executor a chance to flush them. The
+    # bridge's deadman is the backstop if this process is killed harder than this.
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    rep = node.ex.report()
-    try:
-        for _ in range(3):
+        for _ in range(5):
             node.send(0.0, 0.0, 0.0)
-            time.sleep(0.02)
-    except Exception:
-        pass
+            rclpy.spin_once(node, timeout_sec=0.02)
+    except Exception as exc:
+        print("could not send the final zero ({}); the bridge deadman will "
+              "stop the robot within 0.5 s".format(exc))
+    rep = node.ex.report()
     node.destroy_node()
     rclpy.shutdown()
     print("\nreport:\n" + json.dumps(rep, indent=2, ensure_ascii=False))
@@ -233,18 +274,46 @@ SCHEMA = {
 }
 
 
-def print_capability(env, lim):
-    print("能力自述（由部署配置生成，不是手写文案）:")
-    print("  " + env.describe())
-    print("  来源: " + env.source)
-    if lim.v_cal is None:
-        print("  距离: 未标定。现在只能按时间走，不能按米走。")
+def capability_text(env, lim):
+    """The capability statement, in English: this is exactly what the LLM layer
+    will be given, so it is generated from the enforced envelope and the measured
+    calibration rather than written by hand."""
+    lines = [env.describe("en")]
+    if lim.v_cal_assumed:
+        lines.append("I can walk a given distance, but only approximately: I have no "
+                     "odometry, so a distance is converted to a walking time at the "
+                     "commanded speed, and my real walking speed has not been "
+                     "measured.")
+    elif lim.v_cal is None:
+        lines.append("I can walk for a given time. I cannot walk a given distance yet: "
+                     "my walking speed has not been calibrated.")
     else:
-        print("  距离: 开环 = 时间 x 实测速度 {:.3f} m/s，误差约 ±{:.0f}%"
-              .format(lim.v_cal, lim.v_cal_rel_err * 100))
-    print("  转向: 用 IMU 航向闭环，容差 {:.1f} 度".format(lim.yaw_tol_deg))
-    print("  单个原语最短 {:.1f} s；预算 {:.0f} s / {:.0f} m / {} 条"
-          .format(lim.min_primitive_s, lim.max_total_s, lim.max_total_m, lim.max_prims))
+        lines.append("I can walk a given distance, but only approximately: I have no "
+                     "odometry, so distance is time x a measured speed of {:.2f} m/s, "
+                     "accurate to about +-{:.0f}%.".format(lim.v_cal, lim.v_cal_rel_err * 100))
+    lines.append("I can turn to a given angle using my IMU heading, to within about "
+                 "{:.0f} degrees.".format(lim.yaw_tol_deg))
+    lines.append("Each step must last at least {:.0f} s. A plan may have at most {} steps, "
+                 "{:.0f} s in total, and {:.0f} m in total."
+                 .format(lim.min_primitive_s, lim.max_prims, lim.max_total_s, lim.max_total_m))
+    lines.append("Units are metres, seconds, degrees, m/s and rad/s.")
+    return " ".join(lines)
+
+
+def print_capability(env, lim, as_json=False):
+    if as_json:
+        print(json.dumps({"capability": capability_text(env, lim),
+                          "envelope": {"vx": list(env.vx), "vy": list(env.vy),
+                                       "wz": list(env.wz), "source": env.source},
+                          "v_cal": lim.v_cal, "v_cal_assumed": lim.v_cal_assumed,
+                          "schema": SCHEMA},
+                         indent=2, ensure_ascii=False))
+        return
+    print("Capability statement (generated from the deployed configuration; this is")
+    print("what the LLM layer is given):\n")
+    print("  " + capability_text(env, lim))
+    print("\n  envelope source: " + env.source)
+    print("  (operator view / 中文: " + env.describe("zh") + ")")
     print("\nJSON schema (structured output target):")
     print(json.dumps(SCHEMA, indent=2, ensure_ascii=False))
 
@@ -323,8 +392,10 @@ def main(argv=None):
     st.add_argument("--seconds", type=float, default=5.0)
 
     sub.add_parser("stop", parents=[common], help="command zero and exit")
-    sub.add_parser("capability", parents=[common],
-                   help="what the robot can do, and the JSON schema")
+    cp = sub.add_parser("capability", parents=[common],
+                        help="what the robot can do, and the JSON schema")
+    cp.add_argument("--json", action="store_true",
+                    help="machine-readable: capability text + envelope + schema")
 
     r = sub.add_parser("run", parents=[common],
                        help='a script: "walk 5s@0.4; turn left 90; walk 10m"')
@@ -350,7 +421,7 @@ def main(argv=None):
             args.rate = lim.cruise_wz
 
         if args.cmd == "capability":
-            print_capability(env, lim)
+            print_capability(env, lim, as_json=args.json)
             return 0
 
         raw = build_steps(args)
@@ -370,8 +441,10 @@ def main(argv=None):
         print("  {}. {}".format(i + 1, pr.summary()))
     print("envelope: {}  [{}]".format(env.describe(), env.source))
     if any(pr.distance_m is not None for pr in prims):
-        print("NOTE: every distance here is OPEN LOOP (time x calibrated speed). "
-              "There is no odometry on this robot.")
+        print("NOTE: every distance here is OPEN LOOP (time x {}). There is no "
+              "odometry on this robot.".format(
+                  "the COMMANDED speed, assumed and not measured" if lim.v_cal_assumed
+                  else "calibrated speed"))
 
     if args.dry_run:
         return dry_run(prims, lim, args.pub_hz)

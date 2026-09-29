@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import math
 
+from .plan import TAPER_DEG, TAPER_FLOOR
+
 IDLE, RUNNING, DONE, ABORTED = "IDLE", "RUNNING", "DONE", "ABORTED"
 
 
@@ -34,6 +36,7 @@ class Record(object):
     def __init__(self, prim):
         self.prim = prim
         self.commanded_s = prim.duration_s
+        self.expected_s = prim.expected_s
         self.actual_s = None
         self.target_deg = prim.yaw_deg
         self.achieved_deg = None
@@ -45,6 +48,10 @@ class Record(object):
         d = {"op": self.prim.op, "text": self.prim.text}
         if self.commanded_s is not None:
             d["commanded_s"] = round(self.commanded_s, 3)
+        if self.expected_s is not None:
+            # a closed-loop turn as executed on a robot that tracks exactly; the
+            # ratio actual_s / expected_s is what stage B reads (untethered)
+            d["expected_s"] = round(self.expected_s, 3)
         if self.actual_s is not None:
             d["actual_s"] = round(self.actual_s, 3)
         if self.target_deg is not None:
@@ -54,8 +61,12 @@ class Record(object):
             d["source"] = "imu_yaw"
         if self.est_distance_m is not None:
             d["est_distance_m"] = round(self.est_distance_m, 3)
-            d["est_err_m"] = round(self.est_err_m or 0.0, 3)
-            d["distance_source"] = "open loop: commanded time x calibrated speed"
+            if self.est_err_m is None:
+                d["distance_source"] = ("open loop: commanded time x commanded speed "
+                                        "(assumed equal to ground speed, not measured)")
+            else:
+                d["est_err_m"] = round(self.est_err_m, 3)
+                d["distance_source"] = "open loop: commanded time x calibrated speed"
         if self.aborted:
             d["aborted"] = self.aborted
         return d
@@ -72,6 +83,7 @@ class Executor(object):
         self._from = (0.0, 0.0)      # (vx, wz) we are ramping away from
         self._yaw0 = None
         self._t_settle = None
+        self._t_first = None
         self.abort_reason = None
 
     # ---------------------------------------------------------------- helpers
@@ -115,19 +127,32 @@ class Executor(object):
         if self.state in (DONE, ABORTED):
             return Output(0.0, 0.0, 0.0, self.state)
 
+        if self._t_first is None:
+            self._t_first = t
+
         # The bridge's own health machine outranks the mission. A DEGRADED bridge
         # is already commanding damping; sending velocity into that is pointless
-        # and hides the fault.
-        if bridge_state not in ("RUNNING", "WAITING_POLICY"):
-            return self._abort("bridge state {}".format(bridge_state), t)
+        # and hides the fault. Once running, anything but RUNNING -- including a
+        # status stream that has gone quiet -- ends the plan.
         if self.state == RUNNING and bridge_state != "RUNNING":
             return self._abort("bridge left RUNNING ({})".format(bridge_state), t)
 
         if self.state == IDLE:
+            if bridge_state == "DEGRADED":
+                return self._abort("bridge is DEGRADED -- clear it (~/resume) first", t)
             if bridge_state != "RUNNING":
-                # Wait, do not start: the first primitive of a plan should not
-                # begin while the policy is still filling its history.
-                return Output(0.0, 0.0, 0.0, IDLE, "waiting for bridge RUNNING")
+                # Wait, do not start: before the first ~/status arrives the state is
+                # simply unknown, and the policy may still be filling its history.
+                # Waiting for ever would hang any caller, so it is bounded.
+                if t - self._t_first > self.lim.start_timeout_s:
+                    why = ("no ~/status received at all -- is the stack up, and is "
+                           "this terminal on the same ROS_DOMAIN_ID / "
+                           "ROS_LOCALHOST_ONLY / RMW?"
+                           if bridge_state in ("UNKNOWN", "NO_STATUS")
+                           else "bridge stayed in {}".format(bridge_state))
+                    return self._abort("never saw the bridge RUNNING within {:.0f} s: {}"
+                                       .format(self.lim.start_timeout_s, why), t)
+                return Output(0.0, 0.0, 0.0, IDLE, None)
             self.state = RUNNING
             self._advance(t)
             return Output(0.0, 0.0, 0.0, RUNNING,
@@ -167,7 +192,8 @@ class Executor(object):
                     rec.aborted = None   # not a failure, but say so in the report
                     note += " -- OUTSIDE the {:.1f} deg tolerance".format(
                         self.lim.yaw_tol_deg)
-            elif elapsed > (prim.duration_s or 1.0) * self.lim.turn_timeout_factor:
+            elif elapsed > (prim.expected_s or prim.duration_s or 1.0) \
+                    * self.lim.turn_timeout_factor:
                 rec.aborted = ("turn timed out at {:+.1f} of {:+.1f} deg"
                                .format(math.degrees(turned), prim.yaw_deg))
                 return self._abort(rec.aborted, t)
@@ -177,8 +203,10 @@ class Executor(object):
                 # the floor at 0.35 of the commanded rate, one 50 Hz cycle is
                 # well under a tenth of a degree, so aiming at the target rather
                 # than at a tolerance band costs nothing in overshoot.
+                # plan.expected_turn_s() models exactly this; change them together.
                 mag = abs(prim.wz)
-                taper = min(1.0, max(0.35, abs(remaining) / max(1e-6, math.radians(25.0))))
+                taper = min(1.0, max(TAPER_FLOOR, abs(remaining)
+                                     / max(1e-6, math.radians(TAPER_DEG))))
                 sign = 1.0 if remaining > 0 else -1.0
                 a = min(1.0, max(0.0, elapsed / self.lim.ramp_s)) if self.lim.ramp_s > 0 else 1.0
                 wz = sign * mag * taper * a

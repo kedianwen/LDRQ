@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from r1_mission import executor as ex   # noqa: E402
+from r1_mission import node as N        # noqa: E402  (rclpy is imported lazily)
 from r1_mission import plan as P        # noqa: E402
 from r1_mission import yaw as Y         # noqa: E402
 
@@ -81,8 +82,14 @@ check("distance carries an error bar", prims[2].distance_err_m is not None
 check("duration-only walk still reports an estimated distance",
       prims[0].distance_m is not None and abs(prims[0].distance_m - 0.35 * 5) < 1e-9)
 check("closed-loop turn is flagged", prims[1].closed_loop)
-check("capability prose names the pinned axis",
-      "不能横移" in TRAINED.describe(), TRAINED.describe())
+check("capability prose (English, the LLM's input) names the pinned axis",
+      "cannot move sideways" in TRAINED.describe(), TRAINED.describe())
+check("capability prose says it cannot walk backward",
+      "cannot walk backward" in TRAINED.describe())
+check("operator view still available in Chinese", "不能横移" in TRAINED.describe("zh"))
+wide = P.Envelope([0.0, 1.0], [-0.3, 0.3], [-0.5, 0.5])
+check("a retrained policy with vy changes the prose with no hand edit",
+      "can move sideways" in wide.describe() and "cannot move sideways" not in wide.describe())
 
 refuses("vx above the trained range",
         lambda: P.compile_plan(P.parse_script("walk 5s@1.5"), TRAINED, lim), "outside")
@@ -101,7 +108,7 @@ refuses("a 90 deg turn too fast to last 2 s",
         "floor")
 refuses("distance with no calibrated speed",
         lambda: P.compile_plan(P.parse_script("walk 10m@0.4"), TRAINED,
-                               P.Limits(v_cal=None)), "no calibrated speed")
+                               P.Limits(v_cal=None)), "no speed is configured")
 refuses("total duration budget",
         lambda: P.compile_plan(P.parse_script("walk 100s@0.4; walk 100s@0.4"),
                                TRAINED, lim), "budget")
@@ -180,6 +187,9 @@ check("report marks the distance as an estimate",
       "distance_source" in rep["executed"][2], rep["executed"][2])
 check("report gives the turn a measured source",
       rep["executed"][1].get("source") == "imu_yaw")
+check("report carries the turn's expected time next to its actual time",
+      rep["executed"][1].get("expected_s", 0) > rep["executed"][1].get("commanded_s", 0),
+      rep["executed"][1])
 
 e2, tr2, _, _ = simulate(prims, lim, degrade_at=3.0)
 check("bridge DEGRADED aborts the plan", e2.state == ex.ABORTED, e2.state)
@@ -211,10 +221,88 @@ e8, _, _, _ = simulate(
 check("a mid-plan 'stop' does not end the plan early", e8.state == ex.DONE
       and len(e8.report()["executed"]) == 3, e8.report())
 
+# The live node starts with no status at all. That must mean "wait", not "abort".
+e9 = ex.Executor(prims, lim)
+o = e9.step(0.0, yaw=0.0, bridge_state="UNKNOWN")
+o = e9.step(0.1, yaw=0.0, bridge_state="UNKNOWN")
+check("no status yet = wait, not abort", e9.state == ex.IDLE, (e9.state, e9.abort_reason))
+o = e9.step(0.9, yaw=0.0, bridge_state="RUNNING")
+check("starts once RUNNING arrives", e9.state == ex.RUNNING, e9.state)
+e10 = ex.Executor(prims, lim)
+for k in range(0, 120):
+    o = e10.step(k * 0.1, yaw=0.0, bridge_state="UNKNOWN")
+    if e10.state == ex.ABORTED:
+        break
+check("never RUNNING -> bounded wait, then abort naming the ROS env",
+      e10.state == ex.ABORTED and "no ~/status" in (e10.abort_reason or ""),
+      e10.abort_reason)
+check("start timeout is ~10 s", 9.9 <= k * 0.1 <= 10.2, k * 0.1)
+e11, _, _, _ = simulate(prims, lim, degrade_at=None)
+e12 = ex.Executor(prims, lim)
+e12.step(0.0, yaw=0.0, bridge_state="RUNNING"); e12.step(0.1, yaw=0.0, bridge_state="RUNNING")
+e12.step(0.2, yaw=0.0, bridge_state="NO_STATUS")
+check("status going quiet mid-run aborts", e12.state == ex.ABORTED
+      and "NO_STATUS" in e12.abort_reason, e12.abort_reason)
+e13 = ex.Executor(prims, lim)
+e13.step(0.0, yaw=0.0, bridge_state="DEGRADED")
+check("refuses to start on a DEGRADED bridge", e13.state == ex.ABORTED, e13.state)
+
 e6 = ex.Executor(prims, lim)
 out = e6.step(0.0, yaw=0.0, bridge_state="WAITING_POLICY")
 check("will not start before the bridge is RUNNING",
       out.state == ex.IDLE and out.vx == 0.0, out.state)
+
+print("\n== assumed ground speed (v_cal: commanded, decided 2026-09-28) ==")
+lim_a = P.Limits(v_cal_assumed=True, cruise_vx=0.4)
+pa, _, ma = P.compile_plan(P.parse_script("walk 10m@0.5; walk 4s@0.3"), TRAINED, lim_a)
+check("distance -> time at the commanded speed", abs(pa[0].duration_s - 20.0) < 1e-9,
+      pa[0].duration_s)
+check("no error bar is invented for an unmeasured speed",
+      pa[0].distance_err_m is None and pa[1].distance_err_m is None)
+check("a timed walk still estimates its distance", abs(pa[1].distance_m - 1.2) < 1e-9,
+      pa[1].distance_m)
+check("distance budget still counts assumed metres", abs(ma - 11.2) < 1e-9, ma)
+check("the plan line says the speed is assumed", "not measured" in pa[0].summary(),
+      pa[0].summary())
+ea, _, _, _ = simulate(pa, lim_a)
+ra = ea.report()["executed"][0]
+check("report labels the distance as assumed and gives no est_err_m",
+      "assumed" in ra.get("distance_source", "") and "est_err_m" not in ra, ra)
+pb = P.compile_plan(P.parse_script("walk 10m@0.5"), TRAINED,
+                    P.Limits(v_cal=0.2, v_cal_assumed=True))[0]
+check("assumed wins over a stray v_cal number", abs(pb[0].duration_s - 20.0) < 1e-9)
+check("config 'v_cal: commanded' -> assumed", N.limits_from_cfg({"v_cal": "commanded"})
+      .v_cal_assumed)
+lu = N.limits_from_cfg({})
+check("config without v_cal -> unmeasured, not assumed",
+      lu.v_cal is None and not lu.v_cal_assumed)
+lm = N.limits_from_cfg({"v_cal": "0.35"})
+check("config with a number -> measured", lm.v_cal == 0.35 and not lm.v_cal_assumed)
+refuses("unmeasured still refuses distance",
+        lambda: P.compile_plan(P.parse_script("walk 3m"), TRAINED, lu), "no speed")
+cap = N.capability_text(TRAINED, lim_a)
+check("capability tells the LLM distance is approximate and unmeasured",
+      "given distance" in cap and "not been measured" in cap, cap)
+
+print("\n== turn timing: the taper is part of the estimate ==")
+# 2026-09-28 sweep: the timeout was 2x the bare angle/rate, which is only ~1.7x
+# of how long the executor really takes, and four of ten gantry points hit it.
+for deg, w in ((20, 0.15), (90, 0.4), (180, 0.4), (360, 0.4)):
+    pt = P.compile_plan(P.parse_script("turn left {}@{}".format(deg, w)), TRAINED, lim)[0]
+    et, _, _, _ = simulate(pt, lim)
+    act = et.report()["executed"][0]["actual_s"]
+    check("expected_turn_s({}deg @{}) = {:.2f}s matches the executor ({:.2f}s)"
+          .format(deg, w, pt[0].expected_s, act), abs(pt[0].expected_s - act) < 0.1)
+pt, tt, _ = P.compile_plan(P.parse_script("turn left 180@0.4"), TRAINED, lim)
+check("plan total uses the executed turn time, not the bare rate",
+      abs(tt - pt[0].expected_s) < 1e-9 and tt > pt[0].duration_s + 1.0, (tt, pt[0]))
+eslow, _, _, _ = simulate(pt, lim, turn_gain=0.55)
+check("a robot turning at 55% of the command still finishes (old timeout aborted it)",
+      eslow.state == ex.DONE, eslow.abort_reason)
+estuck, _, tstuck, _ = simulate(pt, lim, turn_gain=0.0)
+check("a robot that will not turn still times out, at 2x the executed estimate",
+      estuck.state == ex.ABORTED and abs(tstuck - 2 * pt[0].expected_s) < 0.2,
+      (estuck.state, tstuck))
 
 print("\n" + "-" * 50)
 print("pass {}  fail {}".format(len(PASS), len(FAIL)))

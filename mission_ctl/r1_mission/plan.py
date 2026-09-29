@@ -10,9 +10,10 @@ The asymmetry this module exists to make explicit:
                   when the robot has actually turned.
   * walk(distance) CANNOT. There is no base linear velocity in the 425-dim
                   observation and no odometry topic anywhere, so distance is
-                  time x a CALIBRATED speed and carries an error bar. The plan
-                  keeps that error bar and reports it; it never prints a bare
-                  number that looks measured.
+                  time x a speed. That speed is either CALIBRATED (and then
+                  carries an error bar) or ASSUMED equal to the command (and
+                  then says so). Either way the plan never prints a bare number
+                  that looks measured.
 """
 from __future__ import annotations
 
@@ -21,6 +22,48 @@ import math
 import re
 
 OPS = ("walk", "turn", "stand", "stop")
+
+# The closed-loop turn runs at the commanded rate until TAPER_DEG from the target,
+# then slows in proportion to what is left, never below TAPER_FLOOR of the rate
+# (executor.py). Any estimate of how long a turn takes has to include that: a
+# 180 deg turn at 0.4 rad/s is 7.85 s at the bare rate but 9.25 s as executed, so a
+# "2x" timeout on the bare rate was really 1.7x -- and on the gantry four of ten
+# sweep points hit it (2026-09-28).
+TAPER_DEG = 25.0
+TAPER_FLOOR = 0.35
+
+
+def expected_turn_s(yaw_deg, wz, ramp_s):
+    """How long the executor takes to turn yaw_deg at |wz| on a robot that tracks
+    the command exactly: half the ramp, the full-rate part, the proportional
+    taper, and the last stretch at the floor rate."""
+    a = math.radians(abs(yaw_deg))
+    m = abs(wz)
+    if a <= 0.0 or m <= 0.0:
+        return 0.0
+    band = math.radians(TAPER_DEG)
+    floor_band = TAPER_FLOOR * band
+    t = max(0.0, ramp_s) / 2.0
+    t += max(0.0, a - band) / m                                   # full rate
+    if a > floor_band:                                            # w ~ remaining
+        t += (band / m) * math.log(min(a, band) / floor_band)
+    t += min(a, floor_band) / (TAPER_FLOOR * m)                   # floor rate
+    return t
+
+
+def achieved_speed(vx, limits):
+    """The ground speed a commanded vx is taken to produce, or None if there is
+    nothing to convert a distance with."""
+    if limits.v_cal_assumed:
+        # Decided 2026-09-28: no venue to measure it, and the task only needs
+        # distances at the level of "a few metres". Taken as equal to the command,
+        # and reported as an assumption, never with an error bar that looks measured.
+        return vx
+    if limits.v_cal is None:
+        return None
+    # The commanded vx is what the policy is asked for; v_cal is what the robot
+    # actually achieves at cruise_vx. Scale by the command ratio.
+    return limits.v_cal * (vx / limits.cruise_vx)
 
 
 class PlanError(Exception):
@@ -78,28 +121,38 @@ class Envelope(object):
                             "[{:.2f}, {:.2f}] ({})"
                             .format(what, axis, value, lo, hi, self.source))
 
-    def describe(self):
-        """The prose the robot uses to say what it can do. Rendered from the same
-        numbers the bridge clamps to, so it cannot drift out of step with them --
-        this is also what the LLM layer will send as its capability statement."""
-        bits = []
-        lo, hi = self.vx
-        bits.append("前进 {:.2f}~{:.2f} m/s{}".format(lo, hi,
-                    "（不能倒车）" if lo >= 0 else ""))
-        if self.pinned("vy"):
-            bits.append("不能横移（训练中该轴全程钉死为 0）")
-        else:
-            bits.append("横移 {:.2f}~{:.2f} m/s".format(*self.vy))
-        lo, hi = self.wz
-        bits.append("原地/行进转向 {:.2f}~{:.2f} rad/s".format(lo, hi))
-        return "；".join(bits)
+    def describe(self, lang="en"):
+        """What the robot can do, rendered from the same numbers the bridge clamps
+        to, so it cannot drift out of step with them.
+
+        English by default because this string IS the LLM's capability statement,
+        and the LLM layer takes English input. `lang="zh"` renders the same facts
+        for an operator.
+        """
+        vlo, vhi = self.vx
+        wlo, whi = self.wz
+        if lang == "zh":
+            bits = ["前进 {:.2f}~{:.2f} m/s{}".format(vlo, vhi,
+                                                   "（不能倒车）" if vlo >= 0 else "")]
+            bits.append("不能横移（训练中该轴全程钉死为 0）" if self.pinned("vy")
+                        else "横移 {:.2f}~{:.2f} m/s".format(*self.vy))
+            bits.append("原地/行进转向 {:.2f}~{:.2f} rad/s".format(wlo, whi))
+            return "；".join(bits)
+        bits = ["I can walk forward at {:.2f} to {:.2f} m/s{}".format(
+            vlo, vhi, " (I cannot walk backward)" if vlo >= 0 else "")]
+        bits.append("I cannot move sideways (that axis was fixed at zero for all "
+                    "of my training)" if self.pinned("vy")
+                    else "I can move sideways at {:.2f} to {:.2f} m/s".format(*self.vy))
+        bits.append("I can turn left or right at up to {:.2f} rad/s, on the spot or "
+                    "while walking".format(max(abs(wlo), abs(whi))))
+        return "; ".join(bits) + "."
 
 
 class Prim(object):
     """One resolved primitive: a constant (vx, wz) plus how it ends."""
 
     def __init__(self, op, vx=0.0, wz=0.0, duration_s=None, yaw_deg=None,
-                 distance_m=None, distance_err_m=None, text=""):
+                 distance_m=None, distance_err_m=None, text="", expected_s=None):
         self.op = op
         self.vx = float(vx)
         self.wz = float(wz)
@@ -108,6 +161,10 @@ class Prim(object):
         self.distance_m = None if distance_m is None else float(distance_m)
         self.distance_err_m = None if distance_err_m is None else float(distance_err_m)
         self.text = text
+        # closed-loop turns: how long it should take as executed (ramp + taper).
+        # duration_s stays the bare angle / rate, which is what the report calls
+        # commanded_s; the timeout and the plan total use this one.
+        self.expected_s = None if expected_s is None else float(expected_s)
 
     @property
     def closed_loop(self):
@@ -120,8 +177,12 @@ class Prim(object):
         if self.op == "walk":
             s = "walk vx={:.2f} for {:.2f}s".format(self.vx, self.duration_s or 0.0)
             if self.distance_m is not None:
-                s += " (~{:.2f}±{:.2f} m)".format(self.distance_m,
-                                                  self.distance_err_m or 0.0)
+                if self.distance_err_m is None:
+                    s += " (~{:.2f} m if speed = command; not measured)".format(
+                        self.distance_m)
+                else:
+                    s += " (~{:.2f}±{:.2f} m)".format(self.distance_m,
+                                                      self.distance_err_m)
             return s
         if self.op == "turn":
             if self.closed_loop:
@@ -146,11 +207,15 @@ class Limits(object):
     def __init__(self, cruise_vx=0.4, cruise_wz=0.4, v_cal=None, v_cal_rel_err=0.15,
                  ramp_s=0.5, min_primitive_s=2.0, max_total_s=120.0,
                  max_total_m=30.0, max_prims=20, yaw_tol_deg=3.0,
-                 turn_timeout_factor=2.0, settle_s=1.0):
+                 turn_timeout_factor=2.0, settle_s=1.0, start_timeout_s=10.0,
+                 v_cal_assumed=False):
         self.cruise_vx = float(cruise_vx)
         self.cruise_wz = float(cruise_wz)
         self.v_cal = None if v_cal is None else float(v_cal)
         self.v_cal_rel_err = float(v_cal_rel_err)
+        # True: ground speed is taken to equal the command (not measured). Wins
+        # over v_cal, so a config cannot be half one and half the other.
+        self.v_cal_assumed = bool(v_cal_assumed)
         self.ramp_s = float(ramp_s)
         self.min_primitive_s = float(min_primitive_s)
         self.max_total_s = float(max_total_s)
@@ -159,6 +224,7 @@ class Limits(object):
         self.yaw_tol_deg = float(yaw_tol_deg)
         self.turn_timeout_factor = float(turn_timeout_factor)
         self.settle_s = float(settle_s)
+        self.start_timeout_s = float(start_timeout_s)
 
 
 _WALK = re.compile(r"^walk\s+([\d.]+)\s*(s|m)\s*(?:@\s*([\d.]+))?$", re.I)
@@ -251,28 +317,26 @@ def compile_plan(steps, env, limits):
                 raise PlanError("{}: walking needs vx > 0".format(what))
             dist = st.get("distance_m")
             err = None
+            achieved = achieved_speed(vx, limits)
             if dist is not None:
-                if limits.v_cal is None:
+                if achieved is None:
                     raise PlanError(
-                        "{}: asked for a DISTANCE, but no calibrated speed is "
-                        "configured.\n"
-                        "  There is no base linear velocity in the observation and no\n"
-                        "  odometry topic, so distance can only be time x a measured\n"
-                        "  speed. Measure it (tape + stopwatch) and set v_cal in\n"
-                        "  mission.yaml, or ask for a duration instead.".format(what))
-                # The commanded vx is what the policy is asked for; v_cal is what
-                # the robot actually achieves at that command. Scale the measured
-                # speed by the command ratio rather than pretending they are equal.
-                achieved = limits.v_cal * (vx / limits.cruise_vx)
+                        "{}: asked for a DISTANCE, but no speed is configured to\n"
+                        "  convert it with. There is no base linear velocity in the\n"
+                        "  observation and no odometry topic, so distance can only be\n"
+                        "  time x a speed. Set v_cal in mission.yaml (a measured\n"
+                        "  number, or 'commanded' to assume the command), or ask for\n"
+                        "  a duration instead.".format(what))
                 dur = float(dist) / achieved
-                err = float(dist) * limits.v_cal_rel_err
+                if not limits.v_cal_assumed:
+                    err = float(dist) * limits.v_cal_rel_err
                 total_m += float(dist)
             else:
                 dur = float(st["duration_s"])
-                if limits.v_cal is not None:
-                    achieved = limits.v_cal * (vx / limits.cruise_vx)
+                if achieved is not None:
                     dist = achieved * dur
-                    err = dist * limits.v_cal_rel_err
+                    if not limits.v_cal_assumed:
+                        err = dist * limits.v_cal_rel_err
                     total_m += dist
             if dur < limits.min_primitive_s:
                 raise PlanError(_too_short(what, dur, limits))
@@ -296,8 +360,11 @@ def compile_plan(steps, env, limits):
                     "{}: {:.0f} deg at {:.2f} rad/s takes only {:.2f}s, under the "
                     "{:.1f}s floor. Turn slower (@ a smaller wz) or accept a longer "
                     "turn.".format(what, abs(deg), mag, dur, limits.min_primitive_s))
+            exp = expected_turn_s(deg, mag, limits.ramp_s)
             prims.append(Prim("turn", wz=wz, yaw_deg=deg, duration_s=dur,
-                              text=st.get("text", "")))
+                              text=st.get("text", ""), expected_s=exp))
+            total_s += exp
+            continue
         else:
             dur = float(st["duration_s"])
             if dur < limits.min_primitive_s:
