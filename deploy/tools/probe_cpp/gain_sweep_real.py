@@ -294,7 +294,9 @@ def read_operator_log(directory):
     return out
 
 
-def collect(directory, sim_path=None):
+def load_recordings(directory, quiet=False):
+    """{kp: [(file name, metrics)]} and [(file name, why refused)] -- the reduction
+    --collect prints, and what plotting reads (scripts/plot_gain_sweep.py)."""
     files = sorted(pathlib.Path(directory).glob("*.json"))
     if not files:
         raise SystemExit("[fail] no *.json recordings in " + str(directory))
@@ -314,7 +316,7 @@ def collect(directory, sim_path=None):
             refused.append((f.name, "not a walk_metrics recording"))
             continue
         kp = parse_kp(blob.get("note", ""))
-        if kp is not None and "verified=param" not in str(blob.get("note", "")):
+        if kp is not None and not quiet and "verified=param" not in str(blob.get("note", "")):
             print("NOTE     {}: kp={:.2f} is from a hand-typed note, not read back from"
                   " the bridge".format(f.name, kp))
         if kp is None:
@@ -323,7 +325,11 @@ def collect(directory, sim_path=None):
             continue
         points.setdefault(kp, []).append((f.name, reduce_recording(
             f, blob, off, defaults, kp_gains, names, groups)))
+    return points, refused
 
+
+def collect(directory, sim_path=None):
+    points, refused = load_recordings(directory)
     for name, why in refused:
         print("REFUSED  {}: {}".format(name, why))
     if refused:
@@ -529,14 +535,22 @@ def overlay(sim_path, good_real):
               "'points'.".format(sim_path))
         return
     slo, shi = min(stable), max(stable)
+    # A sim edge at the end of the simulated grid was not reached, only stopped at:
+    # the gap on that side is then a bound, and the ratio below with it.
+    tried = [pt.get("kp_scale") for pt in sim.get("points", [])] or list(stable)
+    lo_open, hi_open = slo <= min(tried), shi >= max(tried)
     print("\n=== sim2real gap (FR-R4) ===")
-    print("  sim  stable {:.2f} .. {:.2f}  (width {:.2f})".format(slo, shi, shi - slo))
+    print("  sim  stable {}{:.2f} .. {:.2f}{}  (width {}{:.2f})".format(
+        "<=" if lo_open else "", slo, shi, "+ (grid ends here)" if hi_open else "",
+        ">=" if (lo_open or hi_open) else "", shi - slo))
     if good_real:
         rlo, rhi = min(good_real), max(good_real)
         print("  real stable {:.2f} .. {:.2f}  (width {:.2f})".format(rlo, rhi, rhi - rlo))
-        print("  gap  lower edge {:+.2f}, upper edge {:+.2f}".format(rlo - slo, rhi - shi))
-        print("  read as: the robot tolerates {:.0%} of the gain error the simulator"
-              " says it should".format((rhi - rlo) / max(1e-9, shi - slo)))
+        print("  gap  lower edge {}{:+.2f}, upper edge {}{:+.2f}".format(
+            ">=" if lo_open else "", rlo - slo, "<=" if hi_open else "", rhi - shi))
+        print("  read as: the robot tolerates {}{:.0%} of the gain error the simulator"
+              " says it should".format("at most " if (lo_open or hi_open) else "",
+                                       (rhi - rlo) / max(1e-9, shi - slo)))
         print("  NOTE the real interval is built from a handful of points, so this is"
               "\n       a statement about the TREND agreeing, not a precise gap value.")
     else:

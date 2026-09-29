@@ -25,12 +25,12 @@ This README is self-contained for everything a reader of the repo needs.
 | Milestone | Span | Verdict |
 |---|---|---|
 | M1 · training | W01–W04 | **passed** 2026-08-19 — PG-1 met with 4x margin |
-| M2 · deployment | W05–W08 | in progress — **PG-2 met (60 s untethered)**; INT8 cut with evidence; real half of the `kp_scale` sweep done (domain 1.10–1.50); sim half and evidence archiving open |
+| M2 · deployment | W05–W08 | in progress — **PG-2 met (60 s untethered)**; INT8 cut with evidence; `kp_scale` stability domain done, both halves ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)); PG-2 evidence archiving open |
 | M3 · robustness + command layer | stages A–D | not started |
 
 | Stage | What it delivers | State |
 |---|---|---|
-| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **real half done** (2026-09-28/29): 11 gains in 13 recordings, domain **1.10–1.50, width 0.40, both edges bounded** under the pre-registered definition -- the trained 1.00 passed once and failed once on an 80 ms tilt spike, so it is excluded; 1.60 was emergency-stopped on audible joint noise. Sim half in progress (dev box rebooted) |
+| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **Figure done** ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)): sim 0.80–2.00+ vs real **1.10–1.50** (width 0.40, both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). The robot tolerates at most a third of the simulated range; the gap is postural lean, not joint tracking. PG-2 evidence, report, video, DoD open |
 | **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | first real contact 2026-09-28: tests pass on the robot's Python 3.8, and it drove every sweep point; turn accuracy is still to be accepted untethered |
 | **C** | LLM command layer: **English** instruction → grammar-constrained JSON → execution → templated report | not started |
 | **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
