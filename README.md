@@ -7,9 +7,9 @@ layers built on top of it. Practical counterpart to the plans in `~/kdw/`:
 `development plan/` holds W01–W08, `stage_plan/` holds everything after.
 
 **Status: W01–W07 closed. W08 (the M2 gate) in progress. INT8 quantisation cut
-2026-09-26.** The policy walks on the real robot under protection and recovers
-from being pushed. What is left for M2 is walking off the gantry for 60 s (PG-2)
-and one stability-domain figure. INT8 was dropped on measured grounds — three
+2026-09-26. PG-2 met by 2026-09-28: 60 s of continuous walking with no gantry.**
+The policy walks on the real robot and recovers from being pushed. What is left
+for M2 is archiving the PG-2 evidence and one stability-domain figure. INT8 was dropped on measured grounds — three
 independent measurements say it buys nothing on this model (see *What each week
 produced* below) — so M3's controlled perturbation is **actuator-gain error
 (`kp_scale`)** instead of numeric precision. The methodology is unchanged; only
@@ -25,14 +25,14 @@ This README is self-contained for everything a reader of the repo needs.
 | Milestone | Span | Verdict |
 |---|---|---|
 | M1 · training | W01–W04 | **passed** 2026-08-19 — PG-1 met with 4x margin |
-| M2 · deployment | W05–W08 | in progress — real-robot walking achieved; PG-2 open, INT8 cut with evidence |
+| M2 · deployment | W05–W08 | in progress — **PG-2 met (60 s untethered)**; INT8 cut with evidence; real half of the `kp_scale` sweep done (domain 1.10–1.50); sim half and evidence archiving open |
 | M3 · robustness + command layer | stages A–D | not started |
 
 | Stage | What it delivers | State |
 |---|---|---|
-| **A** | `kp_scale` stability domain (sim curve + real points on one axis), PG-2 or the degrade line, `v_cal` calibration, report/repo/video/DoD | blocked on a dev-box reboot |
-| **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance | code written and self-tested, awaiting the robot |
-| **C** | LLM command layer: Chinese instruction → grammar-constrained JSON → execution → report | not started |
+| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **real half done** (2026-09-28/29): 11 gains in 13 recordings, domain **1.10–1.50, width 0.40, both edges bounded** under the pre-registered definition -- the trained 1.00 passed once and failed once on an 80 ms tilt spike, so it is excluded; 1.60 was emergency-stopped on audible joint noise. Sim half in progress (dev box rebooted) |
+| **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | first real contact 2026-09-28: tests pass on the robot's Python 3.8, and it drove every sweep point; turn accuracy is still to be accepted untethered |
+| **C** | LLM command layer: **English** instruction → grammar-constrained JSON → execution → templated report | not started |
 | **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
 
 ## Layout
