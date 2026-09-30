@@ -1,84 +1,96 @@
-# policy_pack · 版本 A：换策略仍能一键部署
+# policy_pack · swapping the trained policy with one command
 
-把"换一个策略"从**改三个配置 + 改一个 C++ 头文件 + 重编**，变成**一条命令**。
+Turns "deploy a different policy" from **three config edits + a C++ header edit + a
+rebuild** into **one command**.
 
 ```bash
-# 开发机：导出之后，打包
+# dev box: after exporting, build a bundle
 python3 policy_pack/make_bundle.py
 
-# 机器人：装包（八步，任一步失败即停，不留半装状态）
+# robot: install it (eight steps; any failure stops, nothing is left half-installed)
 bash policy_pack/install_bundle.sh bundles/<run_id>
-bash policy_pack/install_bundle.sh bundles/<run_id> --dry-run   # 只看会改什么
+bash policy_pack/install_bundle.sh bundles/<run_id> --dry-run   # only show what would change
 ```
 
-> **状态（2026-09-27）**：开发机上已测（12/12，配置生成与仓库逐字节一致）；
-> **尚未上机**——`install_bundle.sh` 的第 5–8 步（colcon、建引擎、parity）只在机器人上才能跑，
-> 是阶段 D 的验收内容。机器人是 Python 3.8，这里的脚本只在 3.10 上实跑过。
+> **Status (2026-09-27):** tested on the dev box (12/12; generated configs byte-identical to
+> the repository's). **Not yet run on the robot** — steps 5–8 of `install_bundle.sh`
+> (colcon, engine build, parity) only run there, and are stage D's acceptance. The robot
+> runs Python 3.8; these scripts have only been executed on 3.10.
 
-## 一个 bundle 是什么
+## What a bundle is
 
 ```
 bundles/<run_id>/
-  policy.onnx               导出的策略（不是 .plan —— 见下）
-  parity_fixture.bin        这个策略自己的数值锚点
-  policy_interface.json     观测/动作契约：项名·宽度·history、动作映射·scale·default_pos
-  actuator_gains.json       每关节 kp/kd/力矩上限（六组，不是一个标量）
-  command_envelope.json     训练覆盖到的指令包线（从训练配置解析，不是从 bridge.yaml 抄）
-  provenance.json           run_id、git sha、onnx sha256、生成日期与主机
-  MANIFEST.sha256           上面每个文件的哈希
+  policy.onnx               the exported policy (not a .plan -- see below)
+  parity_fixture.bin        this policy's own numerical anchor
+  policy_interface.json     observation/action contract: term names, widths, history;
+                            action mapping, scale, default positions
+  actuator_gains.json       per-joint kp / kd / torque limit (six groups, not one scalar)
+  command_envelope.json     the command range training covered (parsed from the training
+                            config, not copied from bridge.yaml)
+  provenance.json           run_id, git sha, onnx sha256, build date and host
+  MANIFEST.sha256           a hash of every file above
 ```
 
-**bundle 里没有引擎。** TensorRT 的 `.plan` 编码了 TensorRT 版本、GPU 架构和在那台机器上
-实测挑出来的 kernel tactic，不可移植。所以发过去的是 ONNX，引擎在 Orin 上建，
-建完立刻用**这个包自带的 fixture** 做 parity —— 新策略在动关节之前先被证明"算得对"。
+**A bundle contains no engine.** A TensorRT `.plan` encodes the TensorRT version, the GPU
+architecture and kernel tactics timed on the machine that built it; it is not portable.
+So the ONNX travels, the engine is built on the Orin, and it is immediately checked
+against **the bundle's own fixture** — a new policy is proven to compute correctly before
+it moves a joint.
 
-**bundle 里也没有电机槽位映射。** `kJointSlot` 是**机器人**的属性、是实测出来的
-（厂家枚举里 `RightShoulderPitch = 19` 写成了 29，当槽位用会打到 head_pitch），
-放进按策略走的文件等于邀请别人在 yaml 里"修正"它。它留在 `joint_map_measured.tsv`。
+**A bundle contains no motor-slot map either.** `kJointSlot` is a property of the
+**robot**, and it was measured (the vendor enum has `RightShoulderPitch = 19` written as
+29; used as a slot it drives head_pitch). Putting it in a per-policy file invites someone
+to "fix" it in a yaml. It stays in `joint_map_measured.tsv`.
 
-## 为什么是"重新生成 + 重编"，而不是"桥读参数"
+## Why "regenerate and rebuild" rather than "the bridge reads parameters"
 
-`joint_map.hpp` 里的数组是 `constexpr`，所以**编译器**会拿它们的长度去核对
-`kNumJoints` / `kNumActions`——长度不对是一个编译错误，而不是一台已经站着的机器人上的
-运行期意外。实测这台 Orin 上两个包重编 **29 s**（`r1_hw_bridge` 24.3 s + `r1_policy_runner` 25.3 s，
-并行）。这比去改 W06 以来唯一一直稳定的那个节点便宜。
+The arrays in `joint_map.hpp` are `constexpr`, so the **compiler** checks their lengths
+against `kNumJoints` / `kNumActions` — a wrong length is a build error, not a run-time
+surprise on a robot that is already standing. Rebuilding both packages on the Orin takes
+**29 s** measured (`r1_hw_bridge` 24.3 s and `r1_policy_runner` 25.3 s, in parallel).
+That is cheaper than changing the one node that has been stable since W06.
 
-## 八步做什么，以及每步在防什么
+## The eight steps, and what each one guards against
 
-| 步 | 动作 | 防的是 |
+| step | action | guards against |
 |---|---|---|
-| 1 | `verify_bundle.py` | 见下面的拒绝清单。**不写任何文件** |
-| 2 | `gen_configs.py --check` | 让操作者在动手之前看到"会改什么"（注释变动会被明确标成注释变动） |
-| 3 | 把 json/onnx/fixture 拷进 deploy 树 | —— |
-| 4 | `gen_joints.py` + `gen_joint_map.py --header=` | 第二道独立校验：增益顺序 ≠ 关节顺序会在这里 `SystemExit` |
-| 5 | `gen_configs.py` 写两个 yaml | 换了策略却留着上一个策略的包线 |
-| 6 | `colcon build` | 生成的头文件编不过 = 长度/类型不对 |
-| 7 | `r1_build_engine`（ONNX 未变则复用，`--force-engine` 强制重建） | —— |
-| 8 | `r1_parity_check --tol 1e-3` + 写 `installed.json` | 引擎在这台机器上算错数 |
+| 1 | `verify_bundle.py` | the refusal list below. **Writes nothing** |
+| 2 | `gen_configs.py --check` | changing things the operator has not seen (comment-only changes are labelled as such) |
+| 3 | copy the json / onnx / fixture into the deploy tree | — |
+| 4 | `gen_joints.py` + `gen_joint_map.py --header=` | a second, independent check: gain order ≠ joint order exits here |
+| 5 | `gen_configs.py` writes both yamls | a new policy running inside the previous policy's command envelope |
+| 6 | `colcon build` | a generated header that does not compile = a wrong length or type |
+| 7 | `r1_build_engine` (reused if the ONNX is unchanged; `--force-engine` rebuilds) | — |
+| 8 | `r1_parity_check --tol 1e-3`, then write `installed.json` | an engine that computes wrong numbers on this machine |
 
-`installed.json` 记录 run_id、onnx sha256、bundle manifest 哈希、plan 体积与 fingerprint，
-所以"现在机器人上跑的到底是哪个策略"是一个可以读出来的事实，不是一个需要回忆的事情。
+`installed.json` records the run_id, the onnx sha256, the bundle manifest hash, and the
+plan's size and fingerprint, so "which policy is running on the robot right now" is a fact
+you read, not something you have to remember.
 
-## verify_bundle.py 会拒绝什么
+## What `verify_bundle.py` refuses
 
-`tests/run_tests.sh` 把下面每一条都真的造出来跑一遍（12/12 通过），
-并且**断言拒绝的理由**，不只断言退出码——理由错的校验器会把人带向错误的方向。
+`tests/run_tests.sh` actually builds each of these and runs it (12/12 pass), and asserts
+the **reason** for the refusal, not only the exit code — a validator that refuses for the
+wrong reason points people the wrong way.
 
-| 坏 bundle | 为什么危险 |
+| bad bundle | why it is dangerous |
 |---|---|
-| `history_length` 与 `total_dim` 不一致 | 不拦的话要等到 25 s 引擎建完、加载时才发现 |
-| 观测项是桥**不会算**的（如 `base_lin_vel`） | 桥只会算六项；多出来的项会被 50 Hz 补零，读起来像 sim2real gap，能查一周 |
-| 六项都对但**顺序**换了 | 维度全都加得上，纯静默错 |
-| `actuator_gains.json` 少一个关节 / 按字母重排 | 桥按关节序号取增益，顺序不同 = 把踝的 kp 用在髋上 |
-| 某条腿 `damping = 0` | 这就是 W06 那个"腿无阻尼"缺陷的文件形态 |
-| 动作索引名字写 A、指向 B | 膝的指令发到肩，静默 |
-| 包线 `lo > hi` | —— |
-| 改了 json 但没重算 manifest | **最可能真发生的事故** |
-| 包里多了一个没登记的文件 | 手改的 yaml 就是这样被装上去的 |
-| 换了 onnx 但 provenance 没改 | 引擎与"记录在案的策略"不是一个东西 |
+| `history_length` disagrees with `total_dim` | otherwise found only after a 25 s engine build, at load time |
+| an observation term the bridge **cannot compute** (e.g. `base_lin_vel`) | the bridge assembles six terms; an extra one would be zero-filled at 50 Hz, reads like a sim2real gap, and can take a week to find |
+| all six terms present but in a different **order** | every dimension adds up; a completely silent error |
+| `actuator_gains.json` missing a joint, or sorted alphabetically | the bridge takes gains by joint index: a different order puts the ankle's kp on the hip |
+| a leg with `damping = 0` | the file form of W06's "undamped legs" defect |
+| an action index whose name says A but points at B | the knee's command goes to the shoulder, silently |
+| an envelope with `lo > hi` | — |
+| a json edited without recomputing the manifest | **the accident most likely to actually happen** |
+| an extra file in the bundle that is not in the manifest | this is how a hand-edited yaml gets installed |
+| the onnx replaced without updating provenance | the engine is no longer the policy on record |
 
-## 边界（这个版本做不到什么）
+## Limits (what this version cannot do)
 
-只有**桥已经会算的六个观测项**能靠配置部署。一个新策略如果加了 base 线速度、足底接触、
-高度扫描，**必须改 C++**——正确行为是启动时报出那个项名并拒绝，而不是猜。
-`verify_bundle.py` 里 `BRIDGE_TERMS` 那张表就是这条边界，改桥的组帧代码时要同步改它。
+Only policies that use **the six observation terms the bridge already computes** can be
+deployed by configuration. A new policy that adds base linear velocity, foot contact or a
+height scan **needs C++ changes** — the correct behaviour is to name the term at start-up
+and refuse, not to guess. The `BRIDGE_TERMS` table in `verify_bundle.py` is that boundary;
+change it together with the bridge's frame-assembly code.

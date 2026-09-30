@@ -111,6 +111,9 @@ def main() -> int:
                     help="directory to create the bundle under")
     ap.add_argument("--run", default=None,
                     help="run id (default: the 'run' field of policy_interface.json)")
+    ap.add_argument("--artifacts", default=None,
+                    help="directory holding policy.onnx + parity_fixture.bin (default: "
+                         "<deploy>/artifacts, else the models/<name>/ matching the run id)")
     ap.add_argument("--force", action="store_true", help="overwrite an existing bundle")
     args = ap.parse_args()
 
@@ -124,6 +127,16 @@ def main() -> int:
     run_id = args.run or spec.get("run")
     if not run_id:
         raise SystemExit("[fail] no run id: pass --run")
+    if args.artifacts:
+        artifacts = pathlib.Path(args.artifacts).expanduser().resolve()
+    elif not (artifacts / "policy.onnx").is_file():
+        # A fresh clone has no deploy/artifacts/ (it is a working area, not tracked);
+        # the deployed policy's portable files are tracked under models/<name>/.
+        for cand in sorted((REPO / "models").glob("*")):
+            if run_id.endswith(cand.name) and (cand / "policy.onnx").is_file():
+                artifacts = cand
+                print("  (artifacts from " + str(cand) + ")")
+                break
 
     root = pathlib.Path(args.out).expanduser().resolve() / run_id
     if root.exists():

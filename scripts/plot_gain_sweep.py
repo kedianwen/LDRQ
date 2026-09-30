@@ -37,6 +37,11 @@ SURFACE = "#fcfcfb"
 
 
 def real_rows(directory):
+    """Per-recording verdicts. `directory` is either the recordings (~6 MB each, not
+    in git) or the small json --dump-real wrote from them (docs/stageA_kp_sweep_real.json)."""
+    if str(directory).endswith(".json"):
+        d = json.loads(Path(directory).read_text())
+        return d["recordings"], [tuple(x) for x in d["operator_stops"]]
     points, _ = G.load_recordings(directory, quiet=True)
     base = [m["leg_track_rms"] for kp, recs in points.items() if abs(kp - 1.0) < 1e-9 for _f, m in recs]
     baseline = min(base) if base else None
@@ -88,19 +93,34 @@ def main():
     ap.add_argument("--sim", required=True)
     ap.add_argument("--real", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--wide", action="store_true",
+                    help="16:9 two-panel version (domains + max tilt) for slides and the demo video")
+    ap.add_argument("--dump-real", metavar="JSON",
+                    help="also write the reduced real-side verdicts, so the figure can be redrawn without the recordings")
     args = ap.parse_args()
 
     sim = json.loads(Path(args.sim).read_text())
     sp = sorted(sim["points"], key=lambda p: p["kp_scale"])
     sx = [p["kp_scale"] for p in sp]
     rows, ops = real_rows(args.real)
+    if args.dump_real:
+        Path(args.dump_real).write_text(json.dumps({
+            "what": "real-robot kp_scale sweep, one entry per recording, reduced by gain_sweep_real.py "
+                    "(commanded window; ratio = leg tracking rms / the kp=1.0 minimum)",
+            "recordings": rows, "operator_stops": [list(o) for o in ops]}, indent=1))
+        print(f"[ok] wrote {args.dump_real}")
 
     s_dom = domain([p["kp_scale"] for p in sp if p["stable"]], [p["kp_scale"] for p in sp if not p["stable"]])
     r_dom = domain([r["kp"] for r in rows if r["ok"]], [r["kp"] for r in rows if not r["ok"]] + [k for k, _ in ops])
 
-    fig, axes = plt.subplots(5, 1, figsize=(7.2, 10.2), sharex=True,
-                             gridspec_kw={"height_ratios": [0.9, 1, 1, 1, 1], "hspace": 0.28})
-    fig.subplots_adjust(top=0.945, bottom=0.07)
+    if args.wide:
+        fig, axes = plt.subplots(2, 1, figsize=(12.8, 7.2), sharex=True,
+                                 gridspec_kw={"height_ratios": [0.8, 1], "hspace": 0.22})
+        fig.subplots_adjust(top=0.9, bottom=0.12, left=0.07, right=0.87)
+    else:
+        fig, axes = plt.subplots(5, 1, figsize=(7.2, 10.2), sharex=True,
+                                 gridspec_kw={"height_ratios": [0.9, 1, 1, 1, 1], "hspace": 0.28})
+        fig.subplots_adjust(top=0.945, bottom=0.07)
     fig.patch.set_facecolor(SURFACE)
 
     # (a) the two domains -- the headline
@@ -178,10 +198,11 @@ def main():
 
     fig.suptitle("R1 · stage A · kp_scale sweep, same command sequence on both sides",
                  x=0.075, ha="left", fontsize=11, color=INK, y=0.985)
-    fig.text(0.075, 0.02,
-             "Scored over the commanded window of '" + sim["meta"]["sequence"] + "'. "
-             "Real torque is tau_est / rated; sim is pre-clip PD torque / effort limit.",
-             fontsize=7.5, color=INK2)
+    if not args.wide:
+        fig.text(0.075, 0.02,
+                 "Scored over the commanded window of '" + sim["meta"]["sequence"] + "'. "
+                 "Real torque is tau_est / rated; sim is pre-clip PD torque / effort limit.",
+                 fontsize=7.5, color=INK2)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=160, bbox_inches="tight", facecolor=SURFACE)

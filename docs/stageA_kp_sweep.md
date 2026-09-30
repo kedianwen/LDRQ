@@ -59,8 +59,11 @@ simulated interval, sits on the real one's lower edge.
 ~/IsaacLab/isaaclab.sh -p scripts/sweep_gain_robustness.py --headless
 # real half + gap line (recordings are not in git: outputs/gain_sweep_real/2026-09-28/all)
 python3 deploy/tools/probe_cpp/gain_sweep_real.py --collect <recordings> --sim <results.json>
-# figure (system python has matplotlib)
-/usr/bin/python3 scripts/plot_gain_sweep.py --sim <results.json> --real <recordings> --out docs/stageA_kp_sweep.png
+# figure, from the committed data (any python with matplotlib)
+python3 scripts/plot_gain_sweep.py --sim docs/stageA_kp_sweep_sim.json \
+    --real docs/stageA_kp_sweep_real.json --out docs/stageA_kp_sweep.png
 ```
 
-`stageA_kp_sweep_sim.json` is the simulated `results.json` this figure was drawn from.
+`stageA_kp_sweep_sim.json` is the simulated `results.json` this figure was drawn from (re-run
+from a clean clone on 2026-09-29: identical); `stageA_kp_sweep_real.json` is the per-recording
+reduction of the real recordings (`plot_gain_sweep.py --dump-real`).

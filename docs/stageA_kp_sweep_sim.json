@@ -2,9 +2,9 @@
   "meta": {
     "what": "simulated kp_scale stability-domain sweep (stage A, FR-R2/FR-R4)",
     "date": "2026-09-29",
-    "git": "1720e13",
+    "git": "unknown",
     "run": "2026-08-19_11-03-32_week04_nohead",
-    "policy": "logs/rsl_rl/r1_flat/2026-08-19_11-03-32_week04_nohead/exported/policy.pt",
+    "policy": "models/week04_nohead/policy.pt",
     "parity_fixture_max_err": 1.1444091796875e-05,
     "task": "Isaac-Velocity-Flat-R1-Play-v0",
     "conditions": "PLAY config: nominal friction/mass/gains, no pushes, no action delay",

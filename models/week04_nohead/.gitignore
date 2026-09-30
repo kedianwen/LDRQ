@@ -1,0 +1,6 @@
+# Written next to the checkpoint by eval_baseline.py / diagnose_gait.py / play_r1.py
+# when run with --checkpoint models/week04_nohead/model_2999.pt. Regenerable.
+baseline*.md
+gait_diagnosis.txt
+exported/
+videos/

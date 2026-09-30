@@ -17,8 +17,8 @@ script deliberately borrows rather than re-implements:
   timetable;
 * the gain knob -- kp_scale multiplies EVERY actuator's stiffness, kd untouched,
   which is what the bridge's kp_scale launch argument does;
-* the policy -- ``exported/policy.pt`` of the deployed run, checked at start-up
-  against deploy/artifacts/parity_fixture.bin (the fixture the robot's TensorRT
+* the policy -- ``models/week04_nohead/policy.pt`` (the deployed run's export),
+  checked at start-up against the parity_fixture.bin next to it (the fixture the robot's TensorRT
   engine matched to 1.3e-5), so "the sim" is provably the network on the robot;
 * the scoring -- over the COMMANDED window only (first to last non-zero
   command), with the standing tilt before the first command reported apart.
@@ -64,9 +64,11 @@ parser.add_argument("--points", type=str, default=",".join(f"{0.5 + 0.1 * i:.1f}
                     help="Comma-separated kp_scale values (default 0.5..2.0 step 0.1). Must include 1.0.")
 parser.add_argument("--envs_per_point", type=int, default=64)
 parser.add_argument("--task", type=str, default="Isaac-Velocity-Flat-R1-Play-v0")
-parser.add_argument("--policy", type=str,
-                    default=str(_PROJECT_ROOT / "logs" / "rsl_rl" / "r1_flat" / _RUN / "exported" / "policy.pt"))
-parser.add_argument("--fixture", type=str, default=str(_PROJECT_ROOT / "deploy" / "artifacts" / "parity_fixture.bin"))
+# models/week04_nohead/ is the copy tracked in git (a fresh clone has no logs/);
+# both are byte-identical to what was installed on the robot.
+_MODELS = _PROJECT_ROOT / "models" / "week04_nohead"
+parser.add_argument("--policy", type=str, default=str(_MODELS / "policy.pt"))
+parser.add_argument("--fixture", type=str, default=str(_MODELS / "parity_fixture.bin"))
 parser.add_argument("--settle_s", type=float, default=3.0, help="Zero command before the sequence starts.")
 parser.add_argument("--stand_s", type=float, default=1.7,
                     help="Tail of the settle window scored as standing tilt (the real recordings had 1.7 s).")
