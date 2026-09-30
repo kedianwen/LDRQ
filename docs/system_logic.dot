@@ -1,0 +1,91 @@
+// R1: the logic of one `ask`, and the protection that runs whether or not a plan does
+// (2026-09-30). Render: dot -Tsvg docs/system_logic.dot -o docs/system_logic.svg
+digraph logic {
+  graph [rankdir=TB, fontname="DejaVu Sans", fontsize=14, nodesep=0.35, ranksep=0.32,
+         newrank=true, pad=0.3,
+         label="R1 logic: one English instruction, and the protection below it (2026-09-30)\n ",
+         labelloc=t];
+  node  [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=10.5,
+         color="#5f6368", fillcolor="#e8f0fe", margin="0.14,0.06"];
+  edge  [fontname="DejaVu Sans", fontsize=9.5, color="#5f6368", fontcolor="#3c4043"];
+
+  subgraph cluster_ask {
+    label="r1_mission_cli.py ask \"<English>\"  (one process; nothing moves before the operator's y)";
+    style="rounded"; color="#8ab4f8";
+
+    s0 [label="Operator types one English sentence\n(each ask stands alone: no memory of the last one)", fillcolor="white", style="rounded,filled,bold"];
+    q0 [label="a bare \"stop\"?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    st [label="plan = [stop]\nno model call"];
+    n1 [label="normalize (deterministic)\nnumber words -> digits; feet, minutes, km/h -> m, s, m/s\n\"quarter turn\" -> 90 degrees; plain \"turn left\" -> 90 degrees\nunless the sentence is vague; \"N times: ...\" written out"];
+    m1 [label="model: qwen3:1.7b via Ollama, temperature 0\nwrites the steps down in a JSON schema of 10 step shapes,\nincluding backward, sideways and unsupported;\nit is NOT told the robot's limits", fillcolor="#f3e8fd"];
+    q1 [label="answer\nin time?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    p1 [label="provenance: every distance, duration and angle must be in\nthe normalized text with its unit; anything else is dropped\n(and printed: \"not a number you said\")"];
+    t1 [label="translate (deterministic, from the deployed envelope)\nbackward, sideways, unsupported, no amount, too fast, too small\n-> refusal with a reason; a step under 2 s is slowed\n(never below turn_min_wz 0.15 rad/s or 0.1 m/s)"];
+    q2 [label="any step\nrefused?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    c1 [label="compile_plan: envelope, 2 s floor,\ntime / distance / step budgets"];
+    q3 [label="within\nlimits?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    y1 [label="print the parsed plan (vx, wz, seconds, degrees)\noperator reads it: [y/N]", fillcolor="white", style="rounded,filled,bold"];
+    q4 [label="y?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    q5 [label="bridge RUNNING\nwithin 10 s?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    r1 [label="Executor, 10 Hz, one primitive at a time -> ~/cmd_vel\nwalk: time at the commanded speed, 0.5 s ramps\nturn: on the spot, closed on IMU yaw, tapered; timeout 2x its estimate\nstand, stop: zero", fillcolor="#e6f4ea"];
+    q6 [label="bridge DEGRADED or silent 3 s,\nturn timeout, or Ctrl-C?", shape=diamond, fillcolor="#fef7e0", margin="0.05,0.03"];
+    d1 [label="every primitive done;\nhold zero for the settle time"];
+    ok [label="exit 0 -- DONE\ntemplate reply: \"Walked forward for 2.0 s at 0.20 m/s: about 0.4 m\n(time x commanded speed; not measured)\", \"Turned left 90.2° by my IMU\"\n+ one JSONL record (--log)", fillcolor="#e6f4ea", style="rounded,filled,bold", color="#188038"];
+
+    e3 [label="exit 3 -- no answer\nthe restart command is printed", fillcolor="#f1f3f4"];
+    e2 [label="exit 2 -- refused\nevery reason, with the alternative\n(\"I can turn around and walk forward\");\nnothing moves: all or nothing", fillcolor="#f1f3f4"];
+    e2b [label="exit 2 -- limits\n(nothing moves)", fillcolor="#f1f3f4"];
+    e2c [label="exit 2 -- declined\n(nothing moves)", fillcolor="#f1f3f4"];
+    e1 [label="exit 1 -- ABORTED\nzero cmd_vel at once; reply says what ran,\nwhat did not, and why (\"Stopped early: ...\")", fillcolor="#fce8e6", color="#c5221f"];
+
+    s0 -> q0;
+    q0 -> n1 [label="no"];
+    q0 -> st [label="yes"];
+    n1 -> m1 -> q1;
+    q1 -> p1 [label="yes"];
+    q1 -> e3 [label="no"];
+    p1 -> t1 -> q2;
+    q2 -> c1 [label="no"];
+    q2 -> e2 [label="yes"];
+    c1 -> q3;
+    q3 -> y1 [label="yes"];
+    q3 -> e2b [label="no"];
+    st -> y1;
+    y1 -> q4;
+    q4 -> q5 [label="y"];
+    q4 -> e2c [label="N"];
+    q5 -> r1 [label="yes"];
+    q5 -> e1 [label="no"];
+    r1 -> q6;
+    q6 -> d1 [label="no"];
+    q6 -> e1 [label="yes"];
+    d1 -> ok;
+
+    { rank=same; q1; e3; }
+    { rank=same; q2; e2; }
+    { rank=same; q3; e2b; }
+    { rank=same; q4; e2c; }
+    { rank=same; q6; e1; }
+  }
+
+  subgraph cluster_below {
+    label="Always on, below the mission layer (r1_hw_bridge, C++)"; style="rounded,filled";
+    fillcolor="#f8faf8"; color="#81c995";
+    b0 [label="WAITING_LOWSTATE", fillcolor="#f1f3f4"];
+    b1 [label="WAITING_POLICY\nobservation history filling", fillcolor="#f1f3f4"];
+    b2 [label="RUNNING\npolicy targets -> PD at 500 Hz", fillcolor="#e6f4ea", color="#188038"];
+    b3 [label="DEGRADED\ndamping, until ~/resume", fillcolor="#fce8e6", color="#c5221f"];
+    g1 [label="on every ~/cmd_vel:\nclamp to the trained envelope\n(vx 0-1, vy pinned at 0, wz -0.5-0.5)\nno message for 500 ms -> command zero", fillcolor="white", fontsize=9.5];
+    g2 [label="outside software:\nhandheld e-stop, slack gantry", shape=note, style="filled", fillcolor="white", fontsize=9.5];
+    b0 -> b1 [label="rt/lowstate arrives"];
+    b1 -> b2 [label="first joint_target"];
+    b2 -> b3 [label="lowstate stale > 100 ms,\njoint_target stale > 60 ms,\nobs < 45 Hz for 3 s,\nor a non-finite target", color="#c5221f", fontcolor="#a50e0e"];
+    b3 -> b1 [label="~/resume -> ~/policy_reset\n(history refilled)", style=dashed];
+    b2 -> g1 [style=invis];
+    g1 -> g2 [style=invis];
+  }
+
+  r1 -> b2 [style=dashed, color="#188038", fontcolor="#137333", constraint=false,
+            label="~/cmd_vel 10 Hz;\n~/status, ~/imu back"];
+  { rank=same; y1; b0; }
+}

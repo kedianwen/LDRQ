@@ -1,0 +1,93 @@
+// R1: the LLM command layer and the motion-control stack, as deployed on 2026-09-30.
+// Render: dot -Tsvg docs/system_architecture.dot -o docs/system_architecture.svg
+//
+// Rows are fixed with rank=same; flat edges are written left to right (dir=back where
+// the data flows the other way), which fixes the column order. No flat edge crosses a
+// cluster boundary: graphviz 2.43 draws those twice, or aborts on a parallel pair.
+digraph arch {
+  graph [rankdir=TB, fontname="DejaVu Sans", fontsize=14, nodesep=0.5, ranksep=0.7,
+         newrank=true, compound=true, pad=0.3,
+         label="R1 system architecture: English instruction to motor command (2026-09-30)\n ",
+         labelloc=t];
+  node  [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=11,
+         color="#5f6368", fillcolor="white", margin="0.14,0.07"];
+  edge  [fontname="DejaVu Sans", fontsize=9.5, color="#5f6368", fontcolor="#3c4043"];
+
+  subgraph cluster_dev {
+    label="Dev box (Isaac Lab, RTX 2080 Ti)"; style="rounded,filled"; fillcolor="#fef7e0"; color="#e0c060";
+    train [label="Training in simulation\nIsaac Lab PPO -> policy ONNX"];
+    offl  [label="Offline English eval\nsame Ollama version,\nfrozen held-out sets"];
+    pkgs  [label="Packages to the robot (scp)\ncode increments; LLM runtime, once;\npolicy ONNX (engine built on the Orin)"];
+    recs  [label="Records back (scp)\nask_log.jsonl, stack logs,\neval JSON -> docs/"];
+  }
+
+  subgraph cluster_robot {
+    label="Robot: Orin NX 16 GB, JetPack 5.1.1, ROS 2 foxy, Python 3.8"; style="rounded"; color="#9aa0a6";
+
+    op [label="Operator\nSSH terminal on the robot\nEnglish; reads and confirms every plan", style="rounded,filled,bold"];
+
+    subgraph cluster_mission {
+      label="r1_mission_cli.py ask: one process per plan (mission_ctl, rclpy)"; style="rounded,filled";
+      fillcolor="#e8f0fe"; color="#8ab4f8";
+      exe  [label="Executor (executor.py), 10 Hz\nramps, turns closed on IMU yaw,\naborts, report"];
+      plan [label="Plan compiler (plan.py)\nenvelope, 2 s floor,\ntime / distance budgets"];
+      nl   [label="NL front end (nl.py)\nnormalize, provenance check,\ntranslate, reply templates"];
+    }
+
+    subgraph cluster_stack {
+      label="Control stack (C++, r1_stack.launch.py)"; style="rounded,filled"; fillcolor="#e6f4ea"; color="#81c995";
+      bridge [label="r1_hw_bridge\nonly writer of rt/lowcmd\nobservation frame 50 Hz, PD 500 Hz\nenvelope clamp, cmd_vel deadman 500 ms\nwatchdogs -> DEGRADED (damping)"];
+      policy [label="r1_policy_node\nTensorRT FP32 engine, 50 Hz\n5 x 85 = 425 obs -> 24 actions\n0.46 ms idle, up to 5 ms during decode"];
+    }
+
+    subgraph cluster_llm {
+      label="Model server (llm/, user space)"; style="rounded,filled"; fillcolor="#f3e8fd"; color="#c58af9";
+      oll    [label="ollama serve 0.34.4\n127.0.0.1:11434"];
+      ctl    [label="ollama_ctl.sh\nwarm / health / watchdog\n= ask-check --once", fillcolor="#fbf5ff"];
+      runner [label="llama-server runner\nqwen3:1.7b Q4_K_M, 1.47 GB\ncuda_jetpack5, all layers on the GPU"];
+    }
+
+    ll   [label="Unitree low level\nrt/lowstate, rt/lowcmd (CRC)\ndeveloper mode: a single writer", fillcolor="#f1f3f4"];
+    safe [label="handheld e-stop\nslack gantry", shape=note, style="filled", fillcolor="white", fontsize=9.5];
+    hw   [label="26 joints (24 driven), IMU", fillcolor="#f1f3f4"];
+    gpu  [label="Orin GPU (shared)\npolicy inference + LLM decode;\nthe policy waits up to ~5 ms\nwhile the model decodes", shape=box3d, style="filled", fillcolor="#fce8e6", color="#ee675c"];
+  }
+
+  { rank=same; recs; offl; train; pkgs; }
+  { rank=same; exe; plan; nl; }
+  { rank=same; bridge; policy; oll; ctl; }
+  { rank=same; ll; safe; runner; }
+  { rank=same; hw; gpu; }
+
+  // dev box -> robot and back (flat inside the dev box only)
+  recs -> offl -> train [style=invis];
+  train -> pkgs;
+  pkgs -> op [style=dashed, lhead=cluster_robot, label="scp"];
+  op -> recs [style=dashed, ltail=cluster_robot, constraint=false];
+
+  // operator <-> mission process
+  op -> nl [label="English sentence", color="#1a73e8", fontcolor="#1967d2"];
+  exe -> op [ltail=cluster_mission, constraint=false, color="#1a73e8", fontcolor="#1967d2",
+             label="parsed plan + [y/N],\ntemplate reply"];
+
+  // inside the mission process: exe <- plan <- nl
+  exe -> plan [dir=back, label="after y"];
+  plan -> nl [dir=back, label="primitives"];
+
+  // the model
+  nl -> oll [dir=both, label="POST /api/chat: text + JSON schema\nreply: JSON transcript, 0.6-2.6 s", color="#a142f4", fontcolor="#7627bb"];
+  oll -> ctl [dir=back, style=dashed, label="same request\nas ask", color="#a142f4", fontcolor="#7627bb"];
+  oll -> runner [color="#a142f4"];
+
+  // the control loop
+  exe -> bridge [dir=both, label="down: ~/cmd_vel vx, 0, wz  10 Hz\nup: ~/imu 50 Hz, ~/status 1 Hz", color="#188038", fontcolor="#137333"];
+  bridge -> policy [dir=both, label="right: ~/obs 85 floats\nleft: joint_target + action\n50 Hz", color="#188038", fontcolor="#137333"];
+  bridge -> ll [dir=both, label="down: rt/lowcmd 500 Hz\nup: rt/lowstate", color="#188038", fontcolor="#137333"];
+  ll -> hw [dir=both];
+  ll -> safe [style=invis];
+  safe -> hw [style=dotted, arrowhead=tee, label="outside software", fontsize=8.5];
+
+  // the shared GPU
+  policy -> gpu [style=dashed, color="#ee675c", fontcolor="#c5221f", label="inference"];
+  runner -> gpu [style=dashed, color="#ee675c", fontcolor="#c5221f", label="decode"];
+}

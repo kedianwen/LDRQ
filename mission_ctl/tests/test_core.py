@@ -247,6 +247,41 @@ e13 = ex.Executor(prims, lim)
 e13.step(0.0, yaw=0.0, bridge_state="DEGRADED")
 check("refuses to start on a DEGRADED bridge", e13.state == ex.ABORTED, e13.state)
 
+# Ctrl-C arrives from outside the loop (node.py). Stage C on the robot: the caller
+# passed 0.0 as the time, so an interrupted step recorded actual_s 0 (negative after
+# the first step) and an interrupted walk would have reported walking nowhere.
+wk = P.compile_plan(P.parse_script("walk 4s@0.2; turn left 90"), TRAINED, lim)[0]
+e14 = ex.Executor(wk, lim)
+for k in range(0, 26):                      # starts at 1.0 s, stepped to 3.5 s
+    e14.step(1.0 + k * 0.1, yaw=0.0, bridge_state="RUNNING")
+e14.interrupt("operator interrupt (Ctrl-C)")
+r14 = e14.report()["executed"]
+check("Ctrl-C mid-walk: the walk records how long it ran (last step's clock)",
+      e14.state == ex.ABORTED and abs(r14[0]["actual_s"] - 2.5) < 1e-6, r14)
+check("Ctrl-C mid-walk: the next step is not started", len(r14) == 1, r14)
+e15 = ex.Executor(wk, lim)
+t = 0.0
+while len(e15.records) < 2 and t < 10.0:
+    e15.step(t, yaw=0.0, bridge_state="RUNNING")
+    t += 0.1
+t_turn = e15._t_prim
+e15.step(t_turn + 1.5, yaw=0.0, bridge_state="RUNNING")
+e15.interrupt("operator interrupt (Ctrl-C)", t_turn + 1.5)
+r15 = e15.report()["executed"]
+check("Ctrl-C in the second step: its own time, the first step's kept",
+      abs(r15[1]["actual_s"] - 1.5) < 1e-6 and abs(r15[0]["actual_s"] - 4.0) < 0.11, r15)
+e16 = ex.Executor(wk, lim)
+for k in range(0, 50):
+    e16.step(k * 0.1, yaw=0.0, bridge_state="RUNNING")
+e16.interrupt("operator interrupt (Ctrl-C)", 0.0)     # what node.py used to pass
+check("an interrupt time before the step began gives 0, never a negative time",
+      e16.report()["executed"][-1]["actual_s"] == 0.0, e16.report())
+e17, _, _, _ = simulate(prims, lim)
+before = e17.report()
+e17.interrupt("operator interrupt (Ctrl-C)")
+check("Ctrl-C after the plan finished changes nothing",
+      e17.state == ex.DONE and e17.report() == before, e17.report())
+
 e6 = ex.Executor(prims, lim)
 out = e6.step(0.0, yaw=0.0, bridge_state="WAITING_POLICY")
 check("will not start before the bridge is RUNNING",

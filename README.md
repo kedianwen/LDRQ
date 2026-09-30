@@ -15,8 +15,9 @@ joint tracking. INT8 quantisation was dropped on three measurements, and the rob
 experiment kept its methodology with a different knob.
 
 **Start here:** [docs/technical_report.md](docs/technical_report.md) (the whole project
-in one document) · [docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md) (the headline
-figure) · [docs/int8_waiver.md](docs/int8_waiver.md) · [docs/dod.md](docs/dod.md) (the
+in one document) · [docs/system_architecture.md](docs/system_architecture.md) (the
+English command layer and motion control, with the architecture and logic diagrams) ·
+[docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md) (the headline figure) · [docs/int8_waiver.md](docs/int8_waiver.md) · [docs/dod.md](docs/dod.md) (the
 definition-of-done checklist) · [*Reproducing*](#reproducing) below.
 
 Work from W08 on is organised as four **stages** rather than weeks, because
@@ -30,13 +31,13 @@ This README is self-contained for everything a reader of the repo needs.
 |---|---|---|
 | M1 · training | W01–W04 | **passed** 2026-08-19 — PG-1 met with 4x margin |
 | M2 · deployment | W05–W08 | **met** — PG-2 60 s untethered (video being archived), parity 1.335e-05 on the Orin, FR-Q3 (INT8) waived with evidence, FR-Q4 at FP32/FP16 |
-| M3 · robustness + command layer | stages A–D | **stages A and B done**: `kp_scale` stability domain, sim and robot ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)), report, reproducible repo, demo draft; the command layer on the robot (turns, demo sequence, abort paths). Stages C–D (LLM, policy swap) follow |
+| M3 · robustness + command layer | stages A–D | **stages A and B done**: `kp_scale` stability domain, sim and robot ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)), report, reproducible repo, demo draft; the command layer on the robot (turns, demo sequence, abort paths). **Stage C done**: English instructions on the robot, through a local model on the Orin's GPU ([docs/system_architecture.md](docs/system_architecture.md)). Stage D (policy swap) follows |
 
 | Stage | What it delivers | State |
 |---|---|---|
 | **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **done** except the PG-2 video: sim 0.80–2.00+ vs real **1.10–1.50** (both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). Report, INT8 waiver, DoD in `docs/`; demo assembled except the PG-2 clip |
 | **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | **done** 2026-09-30 except the video (deferred to the end). Turn response on the spot (gantry attached, slack) at kp 1.0/1.2/1.3: every rate 0.15–0.5 rad/s turns at ~0.8 of the command; a small yaw rate is lost *while walking*, so the robot turns on the spot only ([docs/stageB_turn_response.md](docs/stageB_turn_response.md)). At kp 1.3 with `turn_min_wz` 0.15: 10 closed-loop turns and the demo sequence all DONE, 0 timeouts, within 1.6° by the IMU; abort paths 4/4 (Ctrl-C sends zero under foxy, `kill -9` → deadman, DEGRADED, no stack) ([docs/stageB_mission_runs.md](docs/stageB_mission_runs.md)). By decision, turn angle is the IMU reading and speed is the command |
-| **C** | LLM command layer: **English** instruction → grammar-constrained JSON → execution → templated report | not started |
+| **C** | LLM command layer: **English** instruction → grammar-constrained JSON → execution → templated report | **done** 2026-09-30 except the video (deferred to the end). The model stays on the Orin's GPU by decision; the GPU side is to be optimized later. The Laya classifier path is closed. `mission_ctl ask`: the model transcribes, deterministic code judges (units normalized first; every distance, time and angle must have been said; refusals from the deployed envelope; all or nothing), the operator confirms the parsed plan, the reply is a template. Offline eval, 7 small models, three held-out sets frozen in turn: **qwen3:1.7b 75/80 clean** (40/40 on the original test set), 100 % valid JSON. **On the Orin** (Ollama 0.34.4 for JetPack 5, `llm/`): the same 77/80 as the dev box on the held-out sets, 0.65 s p50; 11 English instructions end to end, all executed or refused as asked. Coexistence (plan 3.6): decoding on the GPU holds the policy's inference at ~5 ms. That misses plan 3.6's 2 ms target but keeps every limit of the control loop, and no fault was seen; on 4 CPU threads it stays at idle. **Each `ask` stands alone**: phrases that lean on an earlier one ("do that again") are refused, because the numbers the model fills in were never said ([docs/stageC_nl_eval.md](docs/stageC_nl_eval.md), [docs/system_architecture.md](docs/system_architecture.md)) |
 | **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
 
 ## Layout
@@ -65,8 +66,12 @@ This README is self-contained for everything a reader of the repo needs.
   retraining. See `models/week04_nohead/README.md`.
 - `mission_ctl/` — the command layer: drive the robot by time, angle and speed
   over the bridge's existing topics, with the turn closed on the IMU heading and
-  the distance openly labelled as open-loop. No bridge changes, no LLM.
-  See `mission_ctl/README.md`.
+  the distance openly labelled as open-loop. No bridge changes. `ask` adds an English
+  front end (stage C) that ends in the same compiler and checks, and `eval/` holds its
+  offline eval. See `mission_ctl/README.md`.
+- `llm/` — the model server on the robot (stage C): start/health/watchdog for a
+  user-space Ollama on JetPack 5, the control-loop coexistence test, the environment
+  check, and the dev-box script that builds the runtime package. See `llm/README.md`.
 
 Week-by-week execution records and the on-robot step-by-step documents live
 outside this repository, in `~/kdw/experiment_record/` and `~/kdw/`.
@@ -144,7 +149,7 @@ output (each script prints `[ok]` lines or writes its report), not the exit code
 
 | result | needs | command |
 |---|---|---|
-| unit tests: command layer, policy packaging | none | `python3 mission_ctl/tests/test_core.py` · `bash policy_pack/tests/run_tests.sh` |
+| unit tests: command layer, policy packaging | none | `python3 mission_ctl/tests/test_core.py` · `python3 mission_ctl/tests/test_nl.py` · `python3 llm/coexist.py --selftest` · `bash policy_pack/tests/run_tests.sh` |
 | stage A figure, from the committed data | none (matplotlib) | `python3 scripts/plot_gain_sweep.py --sim docs/stageA_kp_sweep_sim.json --real docs/stageA_kp_sweep_real.json --out docs/stageA_kp_sweep.png` |
 | training config still matches the deployed run | GPU | `~/IsaacLab/isaaclab.sh -p scripts/verify_repro.py --headless --run 2026-08-19_11-03-32_week04_nohead` |
 | PG-1 tracking table | GPU | `~/IsaacLab/isaaclab.sh -p scripts/eval_baseline.py --headless --num_envs 64 --checkpoint models/week04_nohead/model_2999.pt` |

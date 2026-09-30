@@ -84,6 +84,7 @@ class Executor(object):
         self._yaw0 = None
         self._t_settle = None
         self._t_first = None
+        self._t_last = None          # the clock at the last step()
         self.abort_reason = None
 
     # ---------------------------------------------------------------- helpers
@@ -129,6 +130,7 @@ class Executor(object):
 
         if self._t_first is None:
             self._t_first = t
+        self._t_last = t
 
         # The bridge's own health machine outranks the mission. A DEGRADED bridge
         # is already commanding damping; sending velocity into that is pointless
@@ -252,8 +254,20 @@ class Executor(object):
         if self.records and self.records[-1].aborted is None:
             self.records[-1].aborted = reason
             if self._t_prim is not None:
-                self.records[-1].actual_s = t - self._t_prim
+                self.records[-1].actual_s = max(0.0, t - self._t_prim)
         return Output(0.0, 0.0, 0.0, ABORTED, "ABORT: " + reason)
+
+    def interrupt(self, reason, t=None):
+        """An abort from outside the control loop (the operator's Ctrl-C). `t` is
+        the executor's own clock; without it, the time of the last step() is used.
+        Stage C found the caller passing 0.0 here, which recorded the interrupted
+        step's actual_s as 0 (or negative) and made an interrupted walk report
+        having walked nowhere."""
+        if self.state in (DONE, ABORTED):
+            return None
+        if t is None:
+            t = self._t_last if self._t_last is not None else (self._t_prim or 0.0)
+        return self._abort(reason, t)
 
     def report(self):
         return {"executed": [r.to_dict() for r in self.records],

@@ -1,0 +1,7 @@
+# Runtime and models are shipped in the LLM runtime package, never in git
+# (licences, and ~1-3 GB). make_runtime.sh builds them.
+ollama/
+models/
+*.log
+*.pid
+.health.err

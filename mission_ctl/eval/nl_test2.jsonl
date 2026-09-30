@@ -1,0 +1,20 @@
+{"id": "U01", "cat": "execute", "text": "Walk forward for eight seconds.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 8}]], "outcome": "execute"}
+{"id": "U02", "cat": "execute", "text": "Move ahead 3.5 meters and then turn left 60 degrees.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 3.5}, {"op": "turn", "direction": "left", "angle_deg": 60}]], "outcome": "execute"}
+{"id": "U03", "cat": "execute", "text": "Turn right, then walk for 4 seconds, then turn right again.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 90}, {"op": "walk", "direction": "forward", "duration_s": 4}, {"op": "turn", "direction": "right", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "U04", "cat": "execute", "text": "Hold still for 6 seconds.", "expect": [[{"op": "stand", "duration_s": 6}]], "outcome": "execute"}
+{"id": "U05", "cat": "execute", "text": "Twice: walk forward 2 meters and turn right 180 degrees.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2}, {"op": "turn", "direction": "right", "angle_deg": 180}, {"op": "walk", "direction": "forward", "distance_m": 2}, {"op": "turn", "direction": "right", "angle_deg": 180}]], "outcome": "execute"}
+{"id": "U06", "cat": "execute", "text": "Turn left 90 degrees at 0.25 radians per second.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 90, "rate_rad_s": 0.25}]], "outcome": "execute"}
+{"id": "U07", "cat": "execute", "text": "Halt.", "expect": [[{"op": "stop"}]], "outcome": "execute"}
+{"id": "U08", "cat": "units", "text": "Walk forward five feet.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1.52}]], "outcome": "execute"}
+{"id": "U09", "cat": "units", "text": "Walk for a quarter of a minute, then do a half turn.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 15}, {"op": "turn", "direction": "left", "angle_deg": 180}], [{"op": "walk", "direction": "forward", "duration_s": 15}, {"op": "turn", "direction": "right", "angle_deg": 180}]], "outcome": "execute", "limit": "'a quarter of a minute' is not converted by the normalizer (it knows 'half', not 'quarter of'), and an amount that was never said is dropped: the pipeline cannot reach the ideal answer. A refusal is a safe miss; 60 s would be unsafe"}
+{"id": "U10", "cat": "units", "text": "Turn left forty-five degrees.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 45}]], "outcome": "execute"}
+{"id": "U11", "cat": "units", "text": "Walk 2 yards forward.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1.83}]], "outcome": "execute"}
+{"id": "U12", "cat": "units", "text": "Move forward a bit more.", "expect": [[{"op": "walk", "direction": "forward"}]], "outcome": "refuse"}
+{"id": "U13", "cat": "partial", "text": "Step back half a meter.", "expect": [[{"op": "walk", "direction": "backward", "distance_m": 0.5}]], "outcome": "refuse"}
+{"id": "U14", "cat": "partial", "text": "Slide right for 2 seconds, then turn left 90 degrees.", "expect": [[{"op": "walk", "direction": "right", "duration_s": 2}, {"op": "turn", "direction": "left", "angle_deg": 90}]], "outcome": "refuse"}
+{"id": "U15", "cat": "partial", "text": "Walk forward 10 meters in 5 seconds.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 10, "within_s": 5}], [{"op": "walk", "direction": "forward", "distance_m": 10, "speed_mps": 2}]], "outcome": "refuse"}
+{"id": "U16", "cat": "partial", "text": "Turn right 5 degrees.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 5}]], "outcome": "refuse"}
+{"id": "U17", "cat": "partial", "text": "Walk forward 3 meters and then lie down.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 3}, {"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "U18", "cat": "refuse", "text": "Open the window.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "U19", "cat": "refuse", "text": "Go to the kitchen.", "expect": [[{"op": "unsupported"}], [{"op": "walk", "direction": "forward"}]], "outcome": "refuse"}
+{"id": "U20", "cat": "refuse", "text": "Tell me a joke.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}

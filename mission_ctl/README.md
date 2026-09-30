@@ -1,17 +1,22 @@
 # mission_ctl · driving the robot by time, angle and speed
 
-No LLM involved. Uses the bridge's **existing** topics (publishes `~/cmd_vel`, reads
-`~/imu` and `~/status`) to turn "walk 5 seconds, turn left 90 degrees, walk 10 metres"
-into one command. **The bridge does not change by a single line.**
+Uses the bridge's **existing** topics (publishes `~/cmd_vel`, reads `~/imu` and
+`~/status`) to turn "walk 5 seconds, turn left 90 degrees, walk 10 metres" into one
+command. **The bridge does not change by a single line.** The core has no model in it;
+`ask` (stage C) puts an English front end on the same compiler, the same checks and the
+same executor.
 
 ```bash
-python3 r1_mission_cli.py capability                      # English capability statement (the LLM's input) + JSON schema
-python3 r1_mission_cli.py capability --json               # the same, machine-readable
+python3 r1_mission_cli.py capability                      # English capability statement + JSON schemas
+python3 r1_mission_cli.py capability --json               # the same, machine-readable (incl. the LLM prompt id)
 python3 r1_mission_cli.py walk --seconds 5 --speed 0.4
 python3 r1_mission_cli.py turn --deg 90 --left            # closed on the IMU heading
 python3 r1_mission_cli.py run "walk 5s@0.4; turn left 90; walk 10m@0.4"
 python3 r1_mission_cli.py run "..." --dry-run             # simulate and print the command trace; never touches the robot
-python3 r1_mission_cli.py json --file plan.json           # the entry point the LLM layer will use
+python3 r1_mission_cli.py json --file plan.json           # a JSON plan
+python3 r1_mission_cli.py ask "walk 2 meters, then turn left"   # English, parsed by a local model (stage C)
+python3 r1_mission_cli.py ask-check                       # is the model up and answering right? moves nothing
+python3 r1_mission_cli.py ask-check --once                # one request, exactly as `ask` sends it (the health check)
 ```
 
 > **Status (2026-09-28): on the real robot.** 68/68 on the robot's Python 3.8.10;
@@ -19,6 +24,13 @@ python3 r1_mission_cli.py json --file plan.json           # the entry point the 
 > sweep. Two things were changed after that session (see *First contact with the robot*);
 > the suite is now 101 tests. Still to be accepted on their own: turn angle against ground
 > truth, and whether Ctrl-C sends a zero under foxy (stage B).
+
+> **Stage C (2026-09-30): `ask` works on the robot.** Evaluated offline first. The same
+> day on the Orin, the held-out sets scored the same as on the dev box, and 11 English
+> instructions ran end to end. All of them executed or were refused as asked. The session
+> exposed one bug here: a Ctrl-C'd step recorded no running time. It is fixed, and the
+> suites are now 106 + 132 tests. See *`ask`* below and
+> [docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md).
 
 ## Why the interface is Python, not bash, not `ros2 param set`
 
@@ -40,8 +52,8 @@ edits:
 - a repeatable sequence: `run "walk 5s@0.4; turn left 90; walk 10m"` or `run --file demo.mission`
 - before going near the robot: the same command with `--dry-run` prints the whole trace on the dev box
 
-The CLI's script string and the LLM's future JSON **compile to the same primitive list**
-(`plan.compile_plan`), so the LLM layer is only a new front end: the executor and every
+The CLI's script string and the model's transcription (via `nl.translate`) **compile to
+the same primitive list** (`plan.compile_plan`), so the LLM layer is only a new front end: the executor and every
 check are reused unchanged.
 
 ## One call = one process = one plan (no resident daemon)
@@ -98,7 +110,10 @@ the envelope actually enforced.
 ## Tests
 
 ```bash
-python3 tests/test_core.py      # 101 tests; no ROS, no pytest, no robot
+python3 tests/test_core.py      # 106 tests; no ROS, no pytest, no robot
+python3 tests/test_nl.py        # 132 tests: normalize, translate, provenance, replies, and
+                                # `ask` end to end against a stand-in model server on 127.0.0.1
+python3 eval/run_nl_eval.py --check --set all   # the eval sets agree with the shipped config
 ```
 
 Not depending on pytest is deliberate: the robot's apt is broken and its Python is 3.8,
@@ -128,8 +143,19 @@ names the likely cause; status going silent for 3 s mid-run aborts; the node tak
 itself and the last message after Ctrl-C was measured to be zero. **Confirmed on the robot
 under foxy (2026-09-30): after Ctrl-C the last `~/cmd_vel` was `[0, 0, 0]`.**
 
-The capability statement is **English by default** because it is the LLM's input;
-`describe("zh")` is kept for operators.
+The capability statement is **English by default** (the English front end's refusals are
+built from the same envelope numbers); `describe("zh")` is kept for operators. The model
+itself is deliberately *not* given it: it transcribes, and the robot judges.
+
+**Stage C on the robot (2026-09-30) found one more:** a Ctrl-C'd step recorded
+`actual_s` 0.0.
+- `live_run` passed 0.0 as the time of the interrupt, so the step's running time came
+  out as zero, or negative when it was not the first step.
+- The two interrupted turns still reported correctly, because a turn is reported by its
+  IMU angle. An interrupted walk would have replied "Walked forward for 0.0 s ...:
+  about 0.0 m".
+- `Executor.interrupt()` now takes the interrupt on the executor's own clock (the last
+  `step()` when none is given) and never records a negative time.
 
 **First contact with the robot (2026-09-28, the `kp_scale` sweep, all on a slack gantry)
 exposed two more:**
@@ -164,6 +190,69 @@ What follows from this:
 - A `turn_min_wz` above the trained |wz| is a config error that refuses every plan. The
   reason: a gain (1.20) was once typed into this field, and every turn was then refused
   one at a time.
+
+## `ask`: English instructions (stage C)
+
+```bash
+python3 r1_mission_cli.py ask "Walk forward 10 feet, then turn around." --log ~/orin_commissioning/ask_log.jsonl
+```
+
+```
+you said:   Walk forward 10 feet, then turn around.
+read as:    walk forward 3.05 m, then turn 180 degrees.
+            (10 feet -> 3.05 m)
+model:      qwen3:1.7b via ollama, 2.1 s (36 tokens, ...)
+understood:
+  1. walk forward 3.05 m
+  2. turn right 180 deg
+plan (2 primitives, ~16.8s, ~3.0m):  ... the same display and [y/N] as `run` ...
+robot:
+1. Walked forward for 7.6 s at 0.40 m/s: about 3.0 m (time x commanded speed; the speed was not measured and there is no odometry).
+2. Turned right 180.2° by my IMU (target 180°; not checked against the floor).
+Done.
+```
+
+**The model transcribes and the robot judges** (`r1_mission/nl.py`; results and method
+in [docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md)):
+
+1. `normalize()` turns number words and units into digits in m, seconds, degrees, m/s
+   and rad/s before the model sees anything. It also gives a plain "turn left" its 90°
+   (never when the sentence is vague) and writes "N times: …" out in full.
+2. The model writes the steps down in a JSON schema whose vocabulary includes what the
+   robot cannot do (backward, sideways, `unsupported`). It is not told the robot's
+   limits.
+3. Deterministic checks decide:
+   - a distance, duration or angle that was not said, with its unit, is dropped, and
+     the robot asks for a number;
+   - every refusal and its reason come from the deployed envelope;
+   - a step under 2 s is slowed to last 2 s (never below `turn_min_wz`, or 0.1 m/s for
+     a walk);
+   - `compile_plan` runs unchanged;
+   - **one refused step refuses the plan.**
+4. The operator confirms the **parsed plan**, and `ask` has no `--yes`. The reply is a
+   template, never model prose: the angle is "by my IMU" and the distance is "time x
+   commanded speed".
+
+Exit codes: 0 done, 1 aborted, 2 refused or declined, 3 model unreachable. The model
+server and its settings are in `mission.yaml` (`llm_url`, `llm_model`, `llm_num_gpu`,
+...) and `../llm/`. A bare "stop" never calls the model. Stopping a running plan is
+still Ctrl-C or the handheld, as in stage B.
+
+**Each `ask` stands alone: there is no memory of the previous one.**
+- Say every command in full, with its direction and its amount. Never "again", "back",
+  "undo" or "the other way".
+- Tried on the dev box, 11 of 12 such phrases were refused. The model copies a plan out of
+  its prompt's examples, and those numbers are dropped because nobody said them.
+- The exception was "Turn the other way 90 degrees.", which executes as a right turn: the
+  amount was said, but the direction was guessed. Only reading the plan before `[y/N]`
+  catches that.
+- To come back from an interrupted turn, turn the other way by the angle the reply
+  reported, not by the angle first asked for.
+
+`ask-check --once` is one request shaped exactly like an `ask`: the same model, placement
+(`llm_num_gpu`, `llm_num_thread`) and prompt. It is the health check in
+`llm/ollama_ctl.sh`. Ollama reloads the model when a request asks for another placement,
+so anything that talks to the server has to send the same options as `ask`.
 
 ## Before using it on the robot
 

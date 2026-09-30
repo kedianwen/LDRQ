@@ -135,9 +135,10 @@ class Envelope(object):
         """What the robot can do, rendered from the same numbers the bridge clamps
         to, so it cannot drift out of step with them.
 
-        English by default because this string IS the LLM's capability statement,
-        and the LLM layer takes English input. `lang="zh"` renders the same facts
-        for an operator.
+        English by default: the LLM layer takes English, and its refusal messages
+        (nl.refusal_message) are built from the same numbers. The model itself is
+        not given this -- it transcribes, the robot judges. `lang="zh"` renders the
+        same facts for an operator.
         """
         vlo, vhi = self.vx
         wlo, whi = self.wz

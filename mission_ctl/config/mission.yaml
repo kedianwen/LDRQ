@@ -52,3 +52,24 @@ turn_timeout_factor: 2.0 # abort a turn that takes this multiple of its estimate
 # below it. (Turning WHILE WALKING is different: on the PG-2 run 0.15 was lost.)
 turn_min_wz: 0.15
 settle_s: 1.0            # hold zero this long before declaring the plan done
+
+# ---- stage C: the English front end (r1_mission_cli.py ask) ----
+# The model server. Robot-local by default. A machine on the robot's own network
+# works too (the plan 3.6 fallback if the coexistence test fails), e.g.
+# llm_url: http://192.168.123.10:11434
+llm_url: http://127.0.0.1:11434
+# Chosen by the offline eval (docs/stageC_nl_eval.md): best on the held-out sets
+# and the fewest answers that would move the robot differently from what was asked.
+# qwen3:0.6b is the small fallback if the Orin needs one.
+llm_model: qwen3:1.7b
+llm_backend: ollama
+llm_timeout_s: 120
+# Where the model runs. -1 = Ollama decides (every layer on the GPU if it fits);
+# 0 = CPU only. Set this from llm/coexist.py on the robot, not from the dev box.
+# Robot, 2026-09-30: on the GPU the policy's inference p99 rose to 5.0 ms and the
+# setpoint lag p95 to 5.1 ms. That misses plan 3.6's targets (2 ms, idle + 1 ms) and
+# keeps every limit of the control loop; nothing misbehaved. 4 CPU threads met both
+# (542 us, 0.9 ms). Decision (user, 2026-09-30): stay on the GPU, optimize the GPU side
+# later (docs/system_architecture.md). The CPU is `llm_num_gpu: 0` + `llm_num_thread: 4`.
+llm_num_gpu: -1
+llm_num_thread: 0        # CPU threads when on the CPU; 0 = Ollama's default (every core)

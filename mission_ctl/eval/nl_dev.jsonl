@@ -1,0 +1,20 @@
+{"id": "D01", "cat": "execute", "text": "Move forward for 6 seconds.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 6}]], "outcome": "execute"}
+{"id": "D02", "cat": "execute", "text": "Please walk ahead 4 meters.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 4}]], "outcome": "execute"}
+{"id": "D03", "cat": "execute", "text": "Rotate right 90 degrees.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "D04", "cat": "execute", "text": "Pause for 2 seconds, then turn left 180 degrees.", "expect": [[{"op": "stand", "duration_s": 2}, {"op": "turn", "direction": "left", "angle_deg": 180}]], "outcome": "execute"}
+{"id": "D05", "cat": "units", "text": "Walk 6 feet then stop.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1.83}, {"op": "stop"}]], "outcome": "execute"}
+{"id": "D06", "cat": "partial", "text": "Reverse 1 meter.", "expect": [[{"op": "walk", "direction": "backward", "distance_m": 1}]], "outcome": "refuse"}
+{"id": "D07", "cat": "partial", "text": "Shuffle to the right for 3 seconds.", "expect": [[{"op": "walk", "direction": "right", "duration_s": 3}]], "outcome": "refuse"}
+{"id": "D08", "cat": "refuse", "text": "Sit down.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "D09", "cat": "refuse", "text": "Wave hello.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "D10", "cat": "units", "text": "Walk forward slightly.", "expect": [[{"op": "walk", "direction": "forward"}]], "outcome": "refuse"}
+{"id": "D11", "cat": "units", "text": "Turn right a little.", "expect": [[{"op": "turn", "direction": "right"}]], "outcome": "refuse"}
+{"id": "D12", "cat": "execute", "text": "Walk forward 2 meters at 0.5 m/s.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2, "speed_mps": 0.5}]], "outcome": "execute"}
+{"id": "D13", "cat": "execute", "text": "Turn left 120 degrees, then walk forward for 3 seconds.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 120}, {"op": "walk", "direction": "forward", "duration_s": 3}]], "outcome": "execute"}
+{"id": "D14", "cat": "units", "text": "Make a U-turn.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 180}], [{"op": "turn", "direction": "right", "angle_deg": 180}]], "outcome": "execute"}
+{"id": "D15", "cat": "partial", "text": "Walk forward for 2 minutes.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 120}]], "outcome": "refuse"}
+{"id": "D16", "cat": "partial", "text": "Turn left at 1 radian per second for 3 seconds.", "expect": [[{"op": "turn", "direction": "left", "duration_s": 3, "rate_rad_s": 1}]], "outcome": "refuse"}
+{"id": "D17", "cat": "execute", "text": "Walk forward three meters, turn around, and walk back three meters.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 3}, {"op": "turn", "direction": "left", "angle_deg": 180}, {"op": "walk", "direction": "forward", "distance_m": 3}], [{"op": "walk", "direction": "forward", "distance_m": 3}, {"op": "turn", "direction": "right", "angle_deg": 180}, {"op": "walk", "direction": "forward", "distance_m": 3}]], "outcome": "execute"}
+{"id": "D18", "cat": "refuse", "text": "Kick the ball.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "D19", "cat": "partial", "text": "Take one step to the left.", "expect": [[{"op": "walk", "direction": "left"}]], "outcome": "refuse"}
+{"id": "D20", "cat": "execute", "text": "Turn right 30 degrees, then walk forward for 2.5 seconds.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 30}, {"op": "walk", "direction": "forward", "duration_s": 2.5}]], "outcome": "execute"}

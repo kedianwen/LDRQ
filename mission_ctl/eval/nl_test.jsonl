@@ -1,0 +1,40 @@
+{"id": "T01", "cat": "execute", "text": "Walk forward for 5 seconds.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 5}]], "outcome": "execute"}
+{"id": "T02", "cat": "execute", "text": "Walk forward 2 meters.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2}]], "outcome": "execute"}
+{"id": "T03", "cat": "execute", "text": "Turn left 90 degrees.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "T04", "cat": "execute", "text": "Turn right 45 degrees.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 45}]], "outcome": "execute", "why": "under 2 s at the default rate, so the turn is slowed to last 2 s"}
+{"id": "T05", "cat": "execute", "text": "Stand still for 3 seconds.", "expect": [[{"op": "stand", "duration_s": 3}]], "outcome": "execute"}
+{"id": "T06", "cat": "execute", "text": "Walk forward 1.5 meters, then turn right 90 degrees.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1.5}, {"op": "turn", "direction": "right", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "T07", "cat": "execute", "text": "Turn around.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 180}], [{"op": "turn", "direction": "right", "angle_deg": 180}]], "outcome": "execute"}
+{"id": "T08", "cat": "execute", "text": "Walk forward for 4 seconds at 0.3 meters per second.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 4, "speed_mps": 0.3}]], "outcome": "execute"}
+{"id": "T09", "cat": "execute", "text": "Turn left for 3 seconds.", "expect": [[{"op": "turn", "direction": "left", "duration_s": 3}]], "outcome": "execute"}
+{"id": "T10", "cat": "execute", "text": "Walk forward 3 meters, turn left 90 degrees, walk forward 2 meters, then stop.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 3}, {"op": "turn", "direction": "left", "angle_deg": 90}, {"op": "walk", "direction": "forward", "distance_m": 2}, {"op": "stop"}]], "outcome": "execute"}
+{"id": "T11", "cat": "execute", "text": "Go forward two meters and then turn right.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2}, {"op": "turn", "direction": "right", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "T12", "cat": "execute", "text": "Wait for 5 seconds, then walk forward for 3 seconds.", "expect": [[{"op": "stand", "duration_s": 5}, {"op": "walk", "direction": "forward", "duration_s": 3}]], "outcome": "execute"}
+{"id": "T13", "cat": "execute", "text": "Stop.", "expect": [[{"op": "stop"}]], "outcome": "execute"}
+{"id": "T14", "cat": "execute", "text": "Do this three times: walk forward 1 meter, then turn left 90 degrees.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1}, {"op": "turn", "direction": "left", "angle_deg": 90}, {"op": "walk", "direction": "forward", "distance_m": 1}, {"op": "turn", "direction": "left", "angle_deg": 90}, {"op": "walk", "direction": "forward", "distance_m": 1}, {"op": "turn", "direction": "left", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "T15", "cat": "execute", "text": "Walk 2 meters in 4 seconds.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2, "within_s": 4}], [{"op": "walk", "direction": "forward", "distance_m": 2, "speed_mps": 0.5}]], "outcome": "execute"}
+{"id": "T16", "cat": "units", "text": "Walk forward 10 feet.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 3.05}]], "outcome": "execute"}
+{"id": "T17", "cat": "units", "text": "Walk 3 yards.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2.74}]], "outcome": "execute"}
+{"id": "T18", "cat": "units", "text": "Walk forward for half a minute.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 30}]], "outcome": "execute"}
+{"id": "T19", "cat": "units", "text": "Make a quarter turn to the right.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "T20", "cat": "units", "text": "Walk forward 50 centimeters.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 0.5}]], "outcome": "execute", "why": "under 2 s at the default speed, so the walk is slowed to last 2 s"}
+{"id": "T21", "cat": "units", "text": "Walk forward at 2 kilometers per hour for 5 seconds.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 5, "speed_mps": 0.56}]], "outcome": "execute"}
+{"id": "T22", "cat": "units", "text": "Turn right one hundred and eighty degrees.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 180}]], "outcome": "execute"}
+{"id": "T23", "cat": "units", "text": "Walk forward six feet, then turn left.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1.83}, {"op": "turn", "direction": "left", "angle_deg": 90}]], "outcome": "execute"}
+{"id": "T24", "cat": "units", "text": "Go a little further.", "expect": [[{"op": "walk", "direction": "forward"}]], "outcome": "refuse", "why": "no amount"}
+{"id": "T25", "cat": "units", "text": "Turn left a bit.", "expect": [[{"op": "turn", "direction": "left"}]], "outcome": "refuse", "why": "no amount"}
+{"id": "T26", "cat": "partial", "text": "Strafe left 2 meters.", "expect": [[{"op": "walk", "direction": "left", "distance_m": 2}]], "outcome": "refuse", "why": "sideways"}
+{"id": "T27", "cat": "partial", "text": "Walk backward 1 meter.", "expect": [[{"op": "walk", "direction": "backward", "distance_m": 1}]], "outcome": "refuse", "why": "backward"}
+{"id": "T28", "cat": "partial", "text": "Turn 90 degrees in half a second.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 90, "within_s": 0.5}], [{"op": "turn", "direction": "right", "angle_deg": 90, "within_s": 0.5}]], "outcome": "refuse", "why": "3.1 rad/s is above the trained 0.5"}
+{"id": "T29", "cat": "partial", "text": "Walk forward 2 meters, then sidestep right 1 meter.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 2}, {"op": "walk", "direction": "right", "distance_m": 1}]], "outcome": "refuse", "why": "sideways"}
+{"id": "T30", "cat": "partial", "text": "Turn left 90 degrees and then back up 2 meters.", "expect": [[{"op": "turn", "direction": "left", "angle_deg": 90}, {"op": "walk", "direction": "backward", "distance_m": 2}]], "outcome": "refuse", "why": "backward"}
+{"id": "T31", "cat": "partial", "text": "Walk forward at 3 meters per second for 2 seconds.", "expect": [[{"op": "walk", "direction": "forward", "duration_s": 2, "speed_mps": 3}]], "outcome": "refuse", "why": "3 m/s is above the trained 1.0"}
+{"id": "T32", "cat": "partial", "text": "Walk forward 1 meter, then jump.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 1}, {"op": "unsupported"}]], "outcome": "refuse", "why": "jumping"}
+{"id": "T33", "cat": "partial", "text": "Walk forward 40 meters.", "expect": [[{"op": "walk", "direction": "forward", "distance_m": 40}]], "outcome": "refuse", "why": "over the 30 m budget"}
+{"id": "T34", "cat": "partial", "text": "Turn right 10 degrees.", "expect": [[{"op": "turn", "direction": "right", "angle_deg": 10}]], "outcome": "refuse", "why": "below the smallest turn (2 s at 0.15 rad/s = 17 deg)"}
+{"id": "T35", "cat": "partial", "text": "Take a few steps forward and then turn right 90 degrees.", "expect": [[{"op": "walk", "direction": "forward"}, {"op": "turn", "direction": "right", "angle_deg": 90}]], "outcome": "refuse", "why": "no amount for the walk"}
+{"id": "T36", "cat": "refuse", "text": "Climb the stairs.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "T37", "cat": "refuse", "text": "Pick up the cup on the table.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "T38", "cat": "refuse", "text": "Walk to the door.", "expect": [[{"op": "unsupported"}], [{"op": "walk", "direction": "forward"}]], "outcome": "refuse", "why": "a place, not an amount; asking for an amount is also acceptable"}
+{"id": "T39", "cat": "refuse", "text": "Dance for me.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
+{"id": "T40", "cat": "refuse", "text": "Follow me.", "expect": [[{"op": "unsupported"}]], "outcome": "refuse"}
