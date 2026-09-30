@@ -33,7 +33,16 @@ TAPER_DEG = 25.0
 TAPER_FLOOR = 0.35
 
 
-def expected_turn_s(yaw_deg, wz, ramp_s):
+def taper_floor(wz, min_wz=0.0):
+    """Fraction of |wz| the taper never goes below: TAPER_FLOOR, raised so the
+    commanded rate stays at or above min_wz (the robot's measured turning deadband)."""
+    m = abs(wz)
+    if m <= 0.0:
+        return TAPER_FLOOR
+    return min(1.0, max(TAPER_FLOOR, min_wz / m))
+
+
+def expected_turn_s(yaw_deg, wz, ramp_s, min_wz=0.0):
     """How long the executor takes to turn yaw_deg at |wz| on a robot that tracks
     the command exactly: half the ramp, the full-rate part, the proportional
     taper, and the last stretch at the floor rate."""
@@ -41,13 +50,14 @@ def expected_turn_s(yaw_deg, wz, ramp_s):
     m = abs(wz)
     if a <= 0.0 or m <= 0.0:
         return 0.0
+    f = taper_floor(m, min_wz)
     band = math.radians(TAPER_DEG)
-    floor_band = TAPER_FLOOR * band
+    floor_band = f * band
     t = max(0.0, ramp_s) / 2.0
     t += max(0.0, a - band) / m                                   # full rate
     if a > floor_band:                                            # w ~ remaining
         t += (band / m) * math.log(min(a, band) / floor_band)
-    t += min(a, floor_band) / (TAPER_FLOOR * m)                   # floor rate
+    t += min(a, floor_band) / (f * m)                             # floor rate
     return t
 
 
@@ -136,15 +146,17 @@ class Envelope(object):
                                                    "（不能倒车）" if vlo >= 0 else "")]
             bits.append("不能横移（训练中该轴全程钉死为 0）" if self.pinned("vy")
                         else "横移 {:.2f}~{:.2f} m/s".format(*self.vy))
-            bits.append("原地/行进转向 {:.2f}~{:.2f} rad/s".format(wlo, whi))
+            bits.append("原地转向，最快 {:.2f} rad/s（边走边转未验证）".format(max(abs(wlo), abs(whi))))
             return "；".join(bits)
         bits = ["I can walk forward at {:.2f} to {:.2f} m/s{}".format(
             vlo, vhi, " (I cannot walk backward)" if vlo >= 0 else "")]
         bits.append("I cannot move sideways (that axis was fixed at zero for all "
                     "of my training)" if self.pinned("vy")
                     else "I can move sideways at {:.2f} to {:.2f} m/s".format(*self.vy))
-        bits.append("I can turn left or right at up to {:.2f} rad/s, on the spot or "
-                    "while walking".format(max(abs(wlo), abs(whi))))
+        # On the spot only: mission_ctl has no walk-and-turn primitive, and on the PG-2
+        # run (2026-09-29) a 0.15 rad/s turn while walking was lost entirely.
+        bits.append("I can turn left or right on the spot at up to {:.2f} rad/s (I do not "
+                    "turn while walking)".format(max(abs(wlo), abs(whi))))
         return "; ".join(bits) + "."
 
 
@@ -208,7 +220,7 @@ class Limits(object):
                  ramp_s=0.5, min_primitive_s=2.0, max_total_s=120.0,
                  max_total_m=30.0, max_prims=20, yaw_tol_deg=3.0,
                  turn_timeout_factor=2.0, settle_s=1.0, start_timeout_s=10.0,
-                 v_cal_assumed=False):
+                 v_cal_assumed=False, turn_min_wz=0.0):
         self.cruise_vx = float(cruise_vx)
         self.cruise_wz = float(cruise_wz)
         self.v_cal = None if v_cal is None else float(v_cal)
@@ -216,6 +228,9 @@ class Limits(object):
         # True: ground speed is taken to equal the command (not measured). Wins
         # over v_cal, so a config cannot be half one and half the other.
         self.v_cal_assumed = bool(v_cal_assumed)
+        # Smallest |wz| the real robot actually turns at (turn_response.py). 0 = not
+        # measured: behaviour as before. The PG-2 run turned at 0.00 of a 0.15 command.
+        self.turn_min_wz = float(turn_min_wz)
         self.ramp_s = float(ramp_s)
         self.min_primitive_s = float(min_primitive_s)
         self.max_total_s = float(max_total_s)
@@ -287,6 +302,15 @@ def parse_script(script):
 def compile_plan(steps, env, limits):
     """Raw steps -> validated Prim list. Every refusal in here happens BEFORE a
     single cmd_vel message is published."""
+    wz_max = max(abs(env.wz[0]), abs(env.wz[1]))
+    if limits.turn_min_wz > wz_max + 1e-9:
+        # Not a per-step refusal: with this config EVERY closed-loop turn would be
+        # refused, which reads like a robot that cannot turn. Say it is the config.
+        raise PlanError(
+            "config error: turn_min_wz = {:.2f} rad/s is above the trained turn range "
+            "(|wz| <= {:.2f}, {}). It is the smallest rate the robot turns at, from "
+            "turn_response.py -- not a gain. Fix mission.yaml."
+            .format(limits.turn_min_wz, wz_max, env.source))
     if len(steps) > limits.max_prims:
         raise PlanError("{} primitives exceeds the budget of {}"
                         .format(len(steps), limits.max_prims))
@@ -352,6 +376,12 @@ def compile_plan(steps, env, limits):
         env.check("wz", wz, what)
         if mag <= 0.0:
             raise PlanError("{}: turning needs |wz| > 0".format(what))
+        if st.get("yaw_deg") is not None and mag < limits.turn_min_wz:
+            raise PlanError(
+                "{}: {:.2f} rad/s is below turn_min_wz = {:.2f}, the lowest rate this "
+                "robot was measured to turn at; slower turns are unmeasured and may "
+                "stall. Turn at >= {:.2f}.".format(what, mag, limits.turn_min_wz,
+                                                   limits.turn_min_wz))
         if st.get("yaw_deg") is not None:
             deg = sign * abs(float(st["yaw_deg"]))
             dur = math.radians(abs(deg)) / mag
@@ -360,7 +390,7 @@ def compile_plan(steps, env, limits):
                     "{}: {:.0f} deg at {:.2f} rad/s takes only {:.2f}s, under the "
                     "{:.1f}s floor. Turn slower (@ a smaller wz) or accept a longer "
                     "turn.".format(what, abs(deg), mag, dur, limits.min_primitive_s))
-            exp = expected_turn_s(deg, mag, limits.ramp_s)
+            exp = expected_turn_s(deg, mag, limits.ramp_s, limits.turn_min_wz)
             prims.append(Prim("turn", wz=wz, yaw_deg=deg, duration_s=dur,
                               text=st.get("text", ""), expected_s=exp))
             total_s += exp

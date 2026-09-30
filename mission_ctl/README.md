@@ -1,126 +1,173 @@
-# mission_ctl · 版本 B：用时间 / 角度 / 速度指挥机器人
+# mission_ctl · driving the robot by time, angle and speed
 
-不涉及 LLM。用桥**已有的** topic（`~/cmd_vel` 发、`~/imu` 和 `~/status` 收）把
-"走 5 秒、左转 90 度、走 10 米"变成一条命令。**桥一行代码都不用改。**
+No LLM involved. Uses the bridge's **existing** topics (publishes `~/cmd_vel`, reads
+`~/imu` and `~/status`) to turn "walk 5 seconds, turn left 90 degrees, walk 10 metres"
+into one command. **The bridge does not change by a single line.**
 
 ```bash
-python3 r1_mission_cli.py capability                      # 英文能力自述（LLM 的输入）+ JSON schema
-python3 r1_mission_cli.py capability --json               # 同上，机器可读
+python3 r1_mission_cli.py capability                      # English capability statement (the LLM's input) + JSON schema
+python3 r1_mission_cli.py capability --json               # the same, machine-readable
 python3 r1_mission_cli.py walk --seconds 5 --speed 0.4
-python3 r1_mission_cli.py turn --deg 90 --left            # IMU 闭环
+python3 r1_mission_cli.py turn --deg 90 --left            # closed on the IMU heading
 python3 r1_mission_cli.py run "walk 5s@0.4; turn left 90; walk 10m@0.4"
-python3 r1_mission_cli.py run "..." --dry-run             # 仿真打印指令轨迹，不碰机器人
-python3 r1_mission_cli.py json --file plan.json           # 以后 LLM 走这条
+python3 r1_mission_cli.py run "..." --dry-run             # simulate and print the command trace; never touches the robot
+python3 r1_mission_cli.py json --file plan.json           # the entry point the LLM layer will use
 ```
 
-> **状态（2026-09-28）**：**已上真机**——机器人 Python 3.8.10 上 68/68；`stand 3s`、`walk 3s@0.2`
-> 均 `DONE`；kp 扫描的 10 次记录都由它驱动。上机后按实测改了两处（见下文"首次上机"），
-> 核心测试现为 88 项。尚未单独验收：转角的地面真值、Ctrl-C 在 foxy 下是否发出零（阶段 B）。
+> **Status (2026-09-28): on the real robot.** 68/68 on the robot's Python 3.8.10;
+> `stand 3s` and `walk 3s@0.2` both `DONE`; it drove all ten recordings of the `kp_scale`
+> sweep. Two things were changed after that session (see *First contact with the robot*);
+> the suite is now 101 tests. Still to be accepted on their own: turn angle against ground
+> truth, and whether Ctrl-C sends a zero under foxy (stage B).
 
-## 交互方案为什么是 Python，不是 bash / 不是 `ros2 param set`
+## Why the interface is Python, not bash, not `ros2 param set`
 
-按任务需要的**能力**来定，而不是按顺手程度：
+Chosen by what the task needs to be **able** to do, not by convenience:
 
-| 方案 | 能持续发 cmd_vel 喂 deadman | 能读 `~/imu` 闭环转向 | 能在桥 DEGRADED 时中止 | 能串起多个原语 |
+| option | keeps publishing cmd_vel for the deadman | reads `~/imu` to close the turn | aborts when the bridge goes DEGRADED | chains primitives |
 |---|---|---|---|---|
-| `ros2 topic pub -r 10` | 能 | **不能** | **不能** | **不能**（停下来就得杀进程） |
-| `ros2 param set` | 不能（参数不是指令通道） | 不能 | 不能 | 不能 |
-| bash 脚本套上面两个 | 勉强 | **不能** | **不能** | 勉强 |
-| **Python (rclpy) 节点** | 能 | 能 | 能 | 能 |
+| `ros2 topic pub -r 10` | yes | **no** | **no** | **no** (stopping means killing it) |
+| `ros2 param set` | no (a parameter is not a command channel) | no | no | no |
+| a bash script around the two | barely | **no** | **no** | barely |
+| **a Python (rclpy) node** | yes | yes | yes | yes |
 
-后两列是硬需求：**转向要闭环就必须订阅 `~/imu`**，而 `ros2 topic pub` 只会发不会收。
-所以执行体必须是一个节点。**但操作界面做成 CLI**——现场效率就是一行命令、不改文件：
+The middle columns are hard requirements: **a closed-loop turn has to subscribe to
+`~/imu`**, and `ros2 topic pub` can only publish. So the executor must be a node. **The
+operator interface is still a CLI** — in the field, efficiency means one line and no file
+edits:
 
-- 一次性动作：`walk --seconds 5`
-- 可复现序列：`run "walk 5s@0.4; turn left 90; walk 10m"` 或 `run --file demo.mission`
-- 上机之前：同一条命令加 `--dry-run`，在开发机上把整条轨迹打出来
+- a one-off action: `walk --seconds 5`
+- a repeatable sequence: `run "walk 5s@0.4; turn left 90; walk 10m"` or `run --file demo.mission`
+- before going near the robot: the same command with `--dry-run` prints the whole trace on the dev box
 
-而且 CLI 的脚本串和以后 LLM 的 JSON **编译到同一个 Prim 列表**（`plan.compile_plan`），
-所以 LLM 层只是换一个前端，执行器和全部校验完全复用。
+The CLI's script string and the LLM's future JSON **compile to the same primitive list**
+(`plan.compile_plan`), so the LLM layer is only a new front end: the executor and every
+check are reused unchanged.
 
-## 一次调用 = 一个进程 = 一个计划（没有常驻守护进程）
+## One call = one process = one plan (no resident daemon)
 
-这是安全属性，不是简化：桥的 `cmd_vel_timeout_ms=500` 会把过期指令衰减到零，
-所以 mission 进程**退出、崩溃、被 kill，机器人都会停**——不依赖谁记得去停它。
-节点还会在启动时数 `~/cmd_vel` 上的发布者，发现已有别人在发就拒绝当第二写者
-（两个调度器抢同一个话题，从机器人这侧看和"策略压不住指令"长得一模一样）。
+This is a safety property, not a simplification: the bridge's `cmd_vel_timeout_ms=500`
+decays a stale command to zero, so if the mission process **exits, crashes or is killed,
+the robot stops** — it does not depend on anyone remembering to stop it. At start-up the
+node also counts the publishers on `~/cmd_vel` and refuses to become a second writer (two
+schedulers fighting over one topic look, from the robot's side, exactly like "the policy
+cannot follow the command").
 
-## 两个原语的不对称（这是本目录的核心）
+## The two primitives are not symmetric (the core of this directory)
 
-| | 能否闭环 | 依据 | 精度 |
+| | closed loop? | basis | accuracy |
 |---|---|---|---|
-| `turn <deg>` | **能** | 桥已在 `~/imu` 以 50 Hz 发 `[qw,qx,qy,qz,...]`；`yaw=atan2(2(wz+xy), 1−2(y²+z²))`，解缠累加 | 控制器**瞄准目标角**而不是瞄容差带（否则系统性欠转到 87°）。10 Hz 下残差 <1°，容差 3° 只用于验收告警 |
-| `walk <m>` | **不能** | 425 维观测里没有 base 线速度，也没有任何里程计话题 | 只能 `时间 = 距离 / 速度`，速度见下 |
+| `turn <deg>` | **yes** | the bridge already publishes `[qw,qx,qy,qz,...]` on `~/imu` at 50 Hz; `yaw = atan2(2(wz+xy), 1−2(y²+z²))`, unwrapped | the controller **aims at the target angle**, not at the tolerance band (which undershot systematically to 87°). Residual < 1° at 10 Hz; the 3° tolerance only triggers a warning |
+| `walk <m>` | **no** | there is no base linear velocity in the 425-dim observation and no odometry topic anywhere | only `time = distance / speed`; the speed is below |
 
-`mission.yaml` 的 `v_cal` 有三种取值，含义各不相同：
+`v_cal` in `mission.yaml` takes three values, each meaning something different:
 
-| `v_cal:` | 按米走 | 距离怎么上报 |
+| `v_cal:` | distance commands | how a distance is reported |
 |---|---|---|
-| **`commanded`（当前默认，2026-09-28 决定）** | 允许，按**指令速度**换算时间 | `~10 m if speed = command; not measured`，**不带误差棒**——没测过就不编一个 |
-| `0.35`（实测数） | 允许，按实测速度换算 | `10 ± 1.5 m`（`v_cal_rel_err`） |
-| `unmeasured` / 缺省 | **拒绝** | — |
+| **`commanded` (current default, decided 2026-09-28)** | allowed, converted at the **commanded** speed | `~10 m if speed = command; not measured`, **no error bar** — none was measured, so none is invented |
+| `0.35` (a measured number) | allowed, converted at the measured speed | `10 ± 1.5 m` (`v_cal_rel_err`) |
+| `unmeasured` / absent | **refused** | — |
 
-改成 `commanded` 的理由：没有场地做测速，而这个任务宏观上只要"几米"量级。
-**缺省仍然是拒绝**：配置必须把"假设"写出来，否则"10 米"会变成一个看起来像测量值的数字。
-能力自述会同步告诉 LLM "my real walking speed has not been measured"。
-以后若测了速度，把数字填进去即可，其余不变（`deploy/tools/probe_cpp/vcal.py` 留着备用）。
+Why `commanded`: there was no venue for a speed test, and the task needs distance only to
+the level of "a few metres". **Absent still means refuse**: the config has to state the
+assumption, or "10 metres" becomes a number that looks measured. The capability statement
+tells the LLM the same: "my real walking speed has not been measured". If the speed is
+ever measured, put the number in and nothing else changes (`deploy/tools/probe_cpp/vcal.py`
+is kept for that).
 
-## 训练分布决定的两条限制
+## Two limits set by the training distribution
 
-- **`min_primitive_s: 2.0`** —— 训练时速度指令每 10 s 才阶跃一次
-  （`resampling_time_range=(10.0, 10.0)`）。阶跃本身在分布内，但一串半秒的原语
-  连起来是策略很少见过的瞬态。2 秒是有理由的下限，不是随手定的。
-- **`ramp_s: 0.5`** —— 同理，斜坡不要钱，把每个原语最开始几个控制周期挪出最陡的瞬态。
-- 另外记一笔：站立在训练里只占 `rel_standing_envs=0.02`，`stand` 是弱训练状态，
-  要测它能站多久，不要假设。
+- **`min_primitive_s: 2.0`** — training stepped the velocity command only every 10 s
+  (`resampling_time_range=(10.0, 10.0)`). A step is in distribution, but a chain of
+  half-second primitives is a transient the policy rarely saw. 2 s is a reasoned floor.
+- **`ramp_s: 0.5`** — for the same reason; a ramp costs nothing and keeps the first
+  control cycles of each primitive out of the sharpest transient.
+- Also: standing was only `rel_standing_envs=0.02` of training, so `stand` is weakly
+  trained. Measure how long it holds; do not assume.
 
-## 校验与预算：整份计划要么全过要么全拒
+## Checks and budgets: a plan passes whole or is refused whole
 
-`compile_plan` 在**发出第一条 cmd_vel 之前**做完所有拒绝：包线（`vx∈[0,1]`、`wz∈[-0.5,0.5]`、
-`vy` 钉死轴**拒绝而非截断**）、原语时长下限、总时长 / 总距离 / 原语条数预算。
-包线本身从 `$R1_DEPLOY_ROOT/interface/command_envelope.json`（policy_pack 装包时落地的）读，
-读不到再退到桥的 `bridge.yaml`——**和桥 clamp 的是同一组数字**，
-所以 `capability` 打印的那句 "I cannot move sideways" 不可能和真正执行的包线走偏。
+`compile_plan` does every refusal **before the first cmd_vel**: the envelope
+(`vx ∈ [0, 1]`, `wz ∈ [−0.5, 0.5]`, the pinned `vy` axis **refused, not clipped**), the
+primitive-length floor, and the total time / distance / primitive-count budgets. The
+envelope is read from `$R1_DEPLOY_ROOT/interface/command_envelope.json` (installed by
+policy_pack), falling back to the bridge's `bridge.yaml` — **the same numbers the bridge
+clamps to**, so the "I cannot move sideways" printed by `capability` cannot drift from
+the envelope actually enforced.
 
-## 测试
+## Tests
 
 ```bash
-python3 tests/test_core.py      # 88 项，无需 ROS / 无需 pytest / 无需机器人
+python3 tests/test_core.py      # 101 tests; no ROS, no pytest, no robot
 ```
 
-不依赖 pytest 是有意的：机器人上 apt 已损坏、Python 是 3.8，
-一套在真正要紧的那台机器上跑不起来的测试不算测试。
+Not depending on pytest is deliberate: the robot's apt is broken and its Python is 3.8,
+and a test suite that cannot run on the machine that matters is not a test suite.
 
-**联调替身桥又抓到三个单元测试看不见的 bug**（单元测试永远传入 `RUNNING`，碰不到 ROS 这一侧）：
-- `~/imu` 订阅用了默认的 RELIABLE，而桥发的是 BEST_EFFORT——两者**不会连接**，
-  真机上每一次闭环转向都会以 "no IMU yaw" 中止
-- 节点以 `UNKNOWN` 起步、0.1 s 就发第一拍，而执行器把非 RUNNING 一律当中止——
-  除非状态消息恰好 0.1 s 内到达，**每次真机运行都会立即中止**；且状态永远不来时会无限等待
-- humble 起 rclpy 在 SIGINT 时关掉 context，"退出前发零"静默失败，
-  Ctrl-C 后桥收到的最后一条仍是 `vx=0.30`，只能靠 500 ms deadman 停
+Writing the suite caught four real bugs that are hard to see by reading: `Output` was
+missing an argument on primitive transitions (**every multi-primitive plan crashed**);
+the settle timer was reset every cycle (**no plan ever reached DONE**); the last
+primitive's `actual_s` was rewritten during settle (1 s too long); and `stop` had no
+duration, so **a plan ending in `stop` never finished**.
 
-现在：订阅按桥的 QoS 匹配；无状态 = 等待，10 s 超时并说出原因；运行中状态静默 3 s 即中止；
-自己接管 SIGINT，Ctrl-C 后最后一条实测为零（foxy 的信号处理不同，上机要再看一次）。
+**A stand-in bridge caught three more that unit tests cannot** (they always pass state
+`RUNNING` and never touch the ROS side):
+- `~/imu` was subscribed with the default RELIABLE QoS while the bridge publishes
+  BEST_EFFORT — the two **never connect**, so every closed-loop turn on the robot would
+  have aborted with "no IMU yaw".
+- The node started at `UNKNOWN` and ticked after 0.1 s, and the executor treated any
+  non-RUNNING state as an abort — unless a status message happened to arrive within
+  0.1 s, **every real run would abort immediately**; and with no status ever arriving it
+  waited forever.
+- From humble on, rclpy shuts its context on SIGINT, so "send zero on exit" silently
+  failed: after Ctrl-C the bridge's last message was still `vx=0.30`, and only the 500 ms
+  deadman stopped it.
 
-能力自述（`capability`）**默认英文**，因为它就是 LLM 的输入；`describe("zh")` 保留给操作者。
+Now: subscriptions match the bridge's QoS; no status means wait, with a 10 s timeout that
+names the likely cause; status going silent for 3 s mid-run aborts; the node takes SIGINT
+itself and the last message after Ctrl-C was measured to be zero. **Confirmed on the robot
+under foxy (2026-09-30): after Ctrl-C the last `~/cmd_vel` was `[0, 0, 0]`.**
 
-**首次上机（2026-09-28，kp 扫描，全程松吊装）又暴露两处：**
-- **转向超时的基数算错了。** 超时原来是 `2 × 角度/角速度`，但执行器在最后 25° 会减速
-  （下限 0.35 倍），180° @0.4 rad/s 实际要 9.25 s 而不是 7.85 s，所谓 "2 倍" 其实只有 1.7 倍。
-  10 次记录里 4 次在第一个转弯超时（只转到 108°–177°）。现在超时和计划总时长都用
-  `plan.expected_turn_s()`（含斜坡和减速段，和执行器逐周期仿真误差 <0.1 s）。
-- **吊装下的转向不代表机器人的转向。** 完成的转弯是理想时长的 1.1–1.4 倍；第一个 180° 之后，
-  直走 5 s 会往回偏 6°–61°，kp=0.9 的第二个左转甚至往右转了 48°——这是吊绳扭转，
-  不是增益（同一个 kp=1.10 重复两次，一次转完、一次超时）。转角精度的验收放在阶段 B 无吊装做。
+The capability statement is **English by default** because it is the LLM's input;
+`describe("zh")` is kept for operators.
 
-这套测试在编写过程中抓到四个真 bug，都是只看代码不容易发现的：
-原语切换时 `Output` 少传一个参数（**每个多原语计划必崩**）、
-settle 计时每周期被重置（**计划永远到不了 DONE**）、
-settle 期间反复改写最后一条原语的 `actual_s`（时长多报 1 s）、
-以及 `stop` 没有时长导致**以 stop 结尾的计划永不结束**。
+**First contact with the robot (2026-09-28, the `kp_scale` sweep, all on a slack gantry)
+exposed two more:**
+- **The turn timeout had the wrong base.** It was `2 × angle / rate`, but the executor
+  slows over the last 25° (to no less than 0.35 of the rate), so 180° at 0.4 rad/s takes
+  9.25 s, not 7.85 s, and the "2×" margin was really 1.7×. Four of ten recordings timed out
+  on the first turn (at 108°–177°). The timeout and the plan total now use
+  `plan.expected_turn_s()` (ramp and taper included; within 0.1 s of the executor
+  simulated cycle by cycle).
+- **Turning on a gantry does not measure the robot's turning.** Completed turns took
+  1.1–1.4× the ideal; after the first 180°, a 5 s straight walk yawed back by 6°–61°, and
+  at kp = 0.9 the second left turn actually rotated 48° to the right — rope torsion, not
+  the gain (the same kp = 1.10 recorded twice gave one completed turn and one timeout).
+  Turn angle was later left to the IMU reading, not checked against the floor (decided
+  2026-09-29: the task does not need it).
 
-## 上机前
+**Turning, measured on the real robot (2026-09-29).**
+- **While walking:** untethered, vx 0.1 with a 0.15 rad/s turn command did not turn in 80 s
+  (the PG-2 run). The simulator follows the same command at 1.03.
+- **On the spot:** measured with `deploy/tools/probe_cpp/turn_response.py`, gantry attached but slack, at
+  kp 1.0, 1.2 and 1.3 ([docs/stageB_turn_response.md](../docs/stageB_turn_response.md)).
+  Every rate from 0.15 to 0.5 turns at about 0.8 of the command. 6 of 24 segments had a
+  sudden lurch (at least some were the slack rope pulling once the robot had moved off the
+  gantry point), and the tool flags those and leaves them out.
 
-桥必须在 `RUNNING`（执行器不会在 `WAITING_POLICY` 时开始跑第一条原语）；
-手柄必须在**开发者模式**，否则厂家运控在 500 Hz 抢 `rt/lowcmd`；
-`enable_output:=true` 之前先用 `--dry-run`，再用 `--yes` 之外的交互确认走一遍。
+What follows from this:
+- `capability` says the robot turns **on the spot only**, and gives the angle **as the IMU
+  reads it**. Turn angle has not been checked against the floor, deliberately: the task
+  does not need it.
+- **`turn_min_wz: 0.15`**, the lowest rate tested. The taper never commands less than
+  this, and a closed-loop turn requested below it is refused.
+- A `turn_min_wz` above the trained |wz| is a config error that refuses every plan. The
+  reason: a gain (1.20) was once typed into this field, and every turn was then refused
+  one at a time.
+
+## Before using it on the robot
+
+The bridge must be `RUNNING` (the executor does not start the first primitive while it is
+`WAITING_POLICY`); the handheld must be in **developer mode**, or the factory motion
+service keeps writing `rt/lowcmd` at 500 Hz; before `enable_output:=true`, run the plan
+with `--dry-run`, then once with the interactive confirmation rather than `--yes`.

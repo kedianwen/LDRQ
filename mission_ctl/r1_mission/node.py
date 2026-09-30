@@ -80,7 +80,7 @@ def limits_from_cfg(cfg):
     lim = P.Limits()
     for key in ("cruise_vx", "cruise_wz", "v_cal_rel_err", "ramp_s",
                 "min_primitive_s", "max_total_s", "max_total_m",
-                "yaw_tol_deg", "turn_timeout_factor", "settle_s"):
+                "yaw_tol_deg", "turn_timeout_factor", "settle_s", "turn_min_wz"):
         if key in cfg:
             setattr(lim, key, float(cfg[key]))
     if "max_prims" in cfg:
@@ -291,8 +291,11 @@ def capability_text(env, lim):
         lines.append("I can walk a given distance, but only approximately: I have no "
                      "odometry, so distance is time x a measured speed of {:.2f} m/s, "
                      "accurate to about +-{:.0f}%.".format(lim.v_cal, lim.v_cal_rel_err * 100))
+    # The 3 deg is the IMU's own reading; turn angle was never checked against the
+    # floor (decided 2026-09-29: the task does not need it). Say so, like the speed.
     lines.append("I can turn to a given angle using my IMU heading, to within about "
-                 "{:.0f} degrees.".format(lim.yaw_tol_deg))
+                 "{:.0f} degrees as my IMU reads it (not checked against the floor)."
+                 .format(lim.yaw_tol_deg))
     lines.append("Each step must last at least {:.0f} s. A plan may have at most {} steps, "
                  "{:.0f} s in total, and {:.0f} m in total."
                  .format(lim.min_primitive_s, lim.max_prims, lim.max_total_s, lim.max_total_m))

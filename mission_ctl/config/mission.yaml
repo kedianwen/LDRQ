@@ -42,4 +42,13 @@ max_prims: 20
 # Closed-loop turning, from the IMU quaternion on ~/imu.
 yaw_tol_deg: 3.0         # acceptance band; the controller aims AT the target
 turn_timeout_factor: 2.0 # abort a turn that takes this multiple of its estimate
+# Smallest |wz| the real robot turns at, from deploy/tools/probe_cpp/turn_response.py.
+# Near its target the turn tapers its rate; this keeps the taper at or above it, and a
+# closed-loop turn asked for below it is refused. A RATE in rad/s, not a gain: above the
+# trained |wz| (0.5) compile_plan rejects the config.
+# Measured 2026-09-29, on the spot, gantry attached but slack, kp 1.0/1.2/1.3: every rate tested,
+# 0.15-0.5, turns at ~0.8 of the command once lurches are left out
+# (docs/stageB_turn_response.md). 0.15 is the lowest rate tested, so the edge is at or
+# below it. (Turning WHILE WALKING is different: on the PG-2 run 0.15 was lost.)
+turn_min_wz: 0.15
 settle_s: 1.0            # hold zero this long before declaring the plan done

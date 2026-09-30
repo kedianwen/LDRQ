@@ -11,6 +11,9 @@ observation, 24-dim action, 50 Hz.
 ## Quick start
 
 ```bash
+# the deployed policy ships in git under models/; deploy/artifacts/ is the working area
+mkdir -p deploy/artifacts && cp models/week04_nohead/{policy.onnx,policy.pt,parity_fixture.bin} deploy/artifacts/
+
 ./deploy/setup.sh                      # provision (idempotent; --check to verify only)
 source deploy/env.sh                   # sets TENSORRT_ROOT/CUDART_ROOT, sources ROS 2
 deploy/.venv/bin/python deploy/tools/check_env.py
@@ -250,6 +253,14 @@ Recovery is explicit: publish `true` to `~/resume`. That makes the bridge send
 `~/policy_reset`, which clears the policy's 5-frame history and re-warms it. An
 automatic restart would feed the policy a history straddling the outage, which
 is outside its training distribution.
+
+**Numeric launch arguments must be written as floats.** `kp_scale`, `kd_scale` and
+`min_control_rate_hz` are declared as `double`. The launch file passes the command-line
+text through as YAML, so `min_control_rate_hz:=55` arrives as an integer. rclcpp then
+throws `InvalidParameterTypeException` and the bridge dies at start-up, while the policy
+node keeps running. Write `55.0`, `1.0`, `1.3`. This was found on the robot on
+2026-09-30, when the DEGRADED abort test never reached DEGRADED. The launch file is left
+as it is: changing it means a rebuild on the robot, and the rule is enough.
 
 ### Protocol requirements, all mandatory
 

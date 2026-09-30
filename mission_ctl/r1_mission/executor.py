@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from .plan import TAPER_DEG, TAPER_FLOOR
+from .plan import TAPER_DEG, taper_floor
 
 IDLE, RUNNING, DONE, ABORTED = "IDLE", "RUNNING", "DONE", "ABORTED"
 
@@ -50,7 +50,7 @@ class Record(object):
             d["commanded_s"] = round(self.commanded_s, 3)
         if self.expected_s is not None:
             # a closed-loop turn as executed on a robot that tracks exactly; the
-            # ratio actual_s / expected_s is what stage B reads (untethered)
+            # ratio actual_s / expected_s is what stage B reads (~1.25 on the real robot)
             d["expected_s"] = round(self.expected_s, 3)
         if self.actual_s is not None:
             d["actual_s"] = round(self.actual_s, 3)
@@ -205,7 +205,7 @@ class Executor(object):
                 # than at a tolerance band costs nothing in overshoot.
                 # plan.expected_turn_s() models exactly this; change them together.
                 mag = abs(prim.wz)
-                taper = min(1.0, max(TAPER_FLOOR, abs(remaining)
+                taper = min(1.0, max(taper_floor(mag, self.lim.turn_min_wz), abs(remaining)
                                      / max(1e-6, math.radians(TAPER_DEG))))
                 sign = 1.0 if remaining > 0 else -1.0
                 a = min(1.0, max(0.0, elapsed / self.lim.ramp_s)) if self.lim.ramp_s > 0 else 1.0

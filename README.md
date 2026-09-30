@@ -6,14 +6,18 @@ deployment side (ONNX → TensorRT → C++/ROS 2), plus the packaging and comman
 layers built on top of it. Practical counterpart to the plans in `~/kdw/`:
 `development plan/` holds W01–W08, `stage_plan/` holds everything after.
 
-**Status: W01–W07 closed. W08 (the M2 gate) in progress. INT8 quantisation cut
-2026-09-26. PG-2 met by 2026-09-28: 60 s of continuous walking with no gantry.**
-The policy walks on the real robot and recovers from being pushed. What is left
-for M2 is archiving the PG-2 evidence and one stability-domain figure. INT8 was dropped on measured grounds — three
-independent measurements say it buys nothing on this model (see *What each week
-produced* below) — so M3's controlled perturbation is **actuator-gain error
-(`kp_scale`)** instead of numeric precision. The methodology is unchanged; only
-the independent variable moved.
+**Status (2026-09-29): the 12-week scope is closed except for archiving one video.**
+The policy walks on the real robot, untethered for 60 s, and recovers from pushes. The
+headline experiment is done on both sides of the gap: under the same command sequence,
+the simulator says the policy tolerates actuator stiffness ×0.80–2.00+, the robot
+tolerates ×1.10–1.50 — at most a third of that range — and the gap is postural lean, not
+joint tracking. INT8 quantisation was dropped on three measurements, and the robustness
+experiment kept its methodology with a different knob.
+
+**Start here:** [docs/technical_report.md](docs/technical_report.md) (the whole project
+in one document) · [docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md) (the headline
+figure) · [docs/int8_waiver.md](docs/int8_waiver.md) · [docs/dod.md](docs/dod.md) (the
+definition-of-done checklist) · [*Reproducing*](#reproducing) below.
 
 Work from W08 on is organised as four **stages** rather than weeks, because
 cutting INT8 made the original W09–W12 files describe a different project. The
@@ -25,13 +29,13 @@ This README is self-contained for everything a reader of the repo needs.
 | Milestone | Span | Verdict |
 |---|---|---|
 | M1 · training | W01–W04 | **passed** 2026-08-19 — PG-1 met with 4x margin |
-| M2 · deployment | W05–W08 | in progress — **PG-2 met (60 s untethered)**; INT8 cut with evidence; `kp_scale` stability domain done, both halves ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)); PG-2 evidence archiving open |
-| M3 · robustness + command layer | stages A–D | not started |
+| M2 · deployment | W05–W08 | **met** — PG-2 60 s untethered (video being archived), parity 1.335e-05 on the Orin, FR-Q3 (INT8) waived with evidence, FR-Q4 at FP32/FP16 |
+| M3 · robustness + command layer | stages A–D | **stages A and B done**: `kp_scale` stability domain, sim and robot ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)), report, reproducible repo, demo draft; the command layer on the robot (turns, demo sequence, abort paths). Stages C–D (LLM, policy swap) follow |
 
 | Stage | What it delivers | State |
 |---|---|---|
-| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **Figure done** ([docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md)): sim 0.80–2.00+ vs real **1.10–1.50** (width 0.40, both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). The robot tolerates at most a third of the simulated range; the gap is postural lean, not joint tracking. PG-2 evidence, report, video, DoD open |
-| **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | first real contact 2026-09-28: tests pass on the robot's Python 3.8, and it drove every sweep point; turn accuracy is still to be accepted untethered |
+| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **done** except the PG-2 video: sim 0.80–2.00+ vs real **1.10–1.50** (both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). Report, INT8 waiver, DoD in `docs/`; demo assembled except the PG-2 clip |
+| **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | **done** 2026-09-30 except the video (deferred to the end). Turn response on the spot (gantry attached, slack) at kp 1.0/1.2/1.3: every rate 0.15–0.5 rad/s turns at ~0.8 of the command; a small yaw rate is lost *while walking*, so the robot turns on the spot only ([docs/stageB_turn_response.md](docs/stageB_turn_response.md)). At kp 1.3 with `turn_min_wz` 0.15: 10 closed-loop turns and the demo sequence all DONE, 0 timeouts, within 1.6° by the IMU; abort paths 4/4 (Ctrl-C sends zero under foxy, `kill -9` → deadman, DEGRADED, no stack) ([docs/stageB_mission_runs.md](docs/stageB_mission_runs.md)). By decision, turn angle is the IMU reading and speed is the command |
 | **C** | LLM command layer: **English** instruction → grammar-constrained JSON → execution → templated report | not started |
 | **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
 
@@ -56,6 +60,9 @@ This README is self-contained for everything a reader of the repo needs.
   instead of edits to three configs and a C++ header. Builds a self-describing
   *bundle* (ONNX + interface + gains + command envelope + its own parity fixture)
   and installs it on the robot in eight checked steps. See `policy_pack/README.md`.
+- `models/` — the deployed policy (checkpoint, TorchScript, ONNX, parity fixture),
+  tracked so that a fresh clone can evaluate, deploy and redraw every figure without
+  retraining. See `models/week04_nohead/README.md`.
 - `mission_ctl/` — the command layer: drive the robot by time, angle and speed
   over the bridge's existing topics, with the turn closed on the IMU heading and
   the distance openly labelled as open-loop. No bridge changes, no LLM.
@@ -87,8 +94,8 @@ now being closed as a *conclusion* rather than as unfinished work, on three
 independent measurements:
 
 1. **It cannot buy time.** This policy is 90,648 parameters at batch 1, so a step
-   is ~180 kFLOP against ~900 µs of wall time — over 99.9% of a step is kernel
-   launch overhead. FP16 measured 1.717e-05 (FP32's order) and 171 µs (not
+   is ~180 kFLOP — a fraction of a microsecond of arithmetic — against 70 µs measured
+   on the Orin: over 99% of a step is kernel launch overhead. FP16 measured 1.717e-05 (FP32's order) and 171 µs (not
    faster), because `kFP16`/`kINT8` *permit* rather than require, and TensorRT
    picked FP32 kernels by build-time timing.
 2. **It cannot buy space.** FP16 made the engine **51.1% larger**
@@ -113,6 +120,45 @@ on the robot, it is one of the five domain-randomisation items, and unlike INT8
 it actually moves the metrics. Because the same knob sweeps on both sides, one
 figure settles FR-R2/PG-5 (the curve) and FR-R4/PG-6 (the offset between the
 curve and the real points) at once.
+
+## Reproducing
+
+What each result needs, and the command that regenerates it. "GPU" means the Isaac Lab
+dev box below; "robot" means an R1 with the `deploy/` stack; "none" runs on any machine
+with Python 3.8+.
+
+**Once after cloning (GPU):** the robot's USD is a build artefact, not tracked —
+generate it from the URDF before any Isaac Lab script, or every one of them fails with
+`USD file not found ... assets/r1/usd/R1.usd`:
+
+```bash
+conda activate env_isaaclab
+~/IsaacLab/isaaclab.sh -p scripts/convert_r1_urdf.py --headless
+```
+
+The conversion is done once it prints `[INFO] USD articulation has 26 joints:` and the
+joint list (about a minute); on this machine Isaac Sim's shutdown can then spin for many
+minutes. `assets/r1/usd/R1.usd` is already written at that point, so Ctrl-C is safe.
+Also note that `isaaclab.sh` exits 0 even when the Python script raised, so check the
+output (each script prints `[ok]` lines or writes its report), not the exit code.
+
+| result | needs | command |
+|---|---|---|
+| unit tests: command layer, policy packaging | none | `python3 mission_ctl/tests/test_core.py` · `bash policy_pack/tests/run_tests.sh` |
+| stage A figure, from the committed data | none (matplotlib) | `python3 scripts/plot_gain_sweep.py --sim docs/stageA_kp_sweep_sim.json --real docs/stageA_kp_sweep_real.json --out docs/stageA_kp_sweep.png` |
+| training config still matches the deployed run | GPU | `~/IsaacLab/isaaclab.sh -p scripts/verify_repro.py --headless --run 2026-08-19_11-03-32_week04_nohead` |
+| PG-1 tracking table | GPU | `~/IsaacLab/isaaclab.sh -p scripts/eval_baseline.py --headless --num_envs 64 --checkpoint models/week04_nohead/model_2999.pt` |
+| simulated half of the `kp_scale` sweep | GPU (~3 min) | `~/IsaacLab/isaaclab.sh -p scripts/sweep_gain_robustness.py --headless` |
+| simulation clip for the demo | GPU | `~/IsaacLab/isaaclab.sh -p scripts/record_demo_sim.py --headless --out outputs/demo/sim_sequence.mp4` |
+| demo video | none (ffmpeg) | `python3 scripts/make_demo_video.py --out ... --clip ... --figure docs/stageA_kp_sweep_wide.png` (see its docstring) |
+| retrain the policy | GPU (~1.5 h) | see *Reproducing a training run* below |
+| engine + parity on the robot | robot | `deploy/README.md` *Quick start* |
+| real half of the `kp_scale` sweep | robot | `python3 deploy/tools/probe_cpp/gain_sweep_real.py --plan`, then `--record <KP>` per point, then `--collect` |
+
+**Not in git, deliberately:** training logs (`logs/`, several GB — the deployed run's
+artefacts are in `models/` instead), TensorRT engines (not portable; rebuilt on each
+target), and the raw real-robot recordings (~80 MB; the reduced per-recording metrics are
+`docs/stageA_kp_sweep_real.json`).
 
 ## Environment
 

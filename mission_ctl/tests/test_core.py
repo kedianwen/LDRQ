@@ -304,6 +304,50 @@ check("a robot that will not turn still times out, at 2x the executed estimate",
       estuck.state == ex.ABORTED and abs(tstuck - 2 * pt[0].expected_s) < 0.2,
       (estuck.state, tstuck))
 
+print("\n== turn_min_wz: keep the taper above the robot's turning deadband ==")
+# 2026-09-29: the robot turned at 0.00 of a 0.15 rad/s command, untethered.
+lim_m = P.Limits(turn_min_wz=0.3)
+pm = P.compile_plan(P.parse_script("turn left 90@0.4"), TRAINED, lim_m)[0]
+em, trm, _, _ = simulate(pm, lim_m)
+turning = [abs(w) for t, _v, w, s in trm if abs(w) > 1e-6 and t >= lim_m.ramp_s]
+check("the taper never commands below turn_min_wz (after the ramp)",
+      min(turning) >= 0.3 - 1e-9, min(turning))
+check("and the turn still ends on target", em.state == ex.DONE
+      and abs(em.report()["executed"][0]["achieved_deg"] - 90.0) < 3.0, em.report())
+check("expected_turn_s models the raised floor",
+      abs(pm[0].expected_s - em.report()["executed"][0]["actual_s"]) < 0.1,
+      (pm[0].expected_s, em.report()["executed"][0]["actual_s"]))
+refuses("a closed-loop turn slower than turn_min_wz is refused, not left to time out",
+        lambda: P.compile_plan(P.parse_script("turn left 90@0.2"), TRAINED, lim_m),
+        "below turn_min_wz")
+check("turn_min_wz above the requested rate caps the floor at the rate",
+      P.taper_floor(0.3, 0.5) == 1.0)
+check("turn_min_wz = 0 keeps the old floor", P.taper_floor(0.4, 0.0) == P.TAPER_FLOOR)
+check("config reads turn_min_wz", N.limits_from_cfg({"turn_min_wz": "0.3"}).turn_min_wz == 0.3)
+check("an open-loop timed turn below it is still allowed (it is how the curve is measured)",
+      len(P.compile_plan(P.parse_script("turn left 6s@0.15"), TRAINED, lim_m)[0]) == 1)
+# 2026-09-29 on the robot: a gain (1.20) was typed into turn_min_wz, which silently
+# refused every closed-loop turn one step at a time. It is a config error, said once.
+refuses("turn_min_wz above the trained |wz| is a config error, even for a walk-only plan",
+        lambda: P.compile_plan(P.parse_script("walk 3s@0.2"), TRAINED,
+                               P.Limits(turn_min_wz=1.2)),
+        "config error")
+check("turn_min_wz exactly at the trained limit is allowed",
+      len(P.compile_plan(P.parse_script("turn left 90@0.5"), TRAINED,
+                         P.Limits(turn_min_wz=0.5))[0]) == 1)
+# The shipped config, against the robot as measured: 0.25-0.5 rad/s turn at ~0.78.
+lim_s = N.limits_from_cfg(N.read_flat_yaml(N.DEFAULT_CFG))
+check("shipped turn_min_wz is inside the trained range",
+      0.0 < lim_s.turn_min_wz <= TRAINED.wz[1], lim_s.turn_min_wz)
+for spec in ("turn left 90", "turn right 180"):
+    ps = P.compile_plan(P.parse_script(spec), TRAINED, lim_s)[0]
+    es, _tr, ts, _ = simulate(ps, lim_s, turn_gain=0.78)
+    check("shipped config, robot at 0.78x: '{}' ends DONE on target, inside the timeout"
+          .format(spec), es.state == ex.DONE
+          and abs(abs(es.report()["executed"][0]["achieved_deg"]) - float(spec.split()[-1])) < 3.0
+          and ts < lim_s.turn_timeout_factor * ps[0].expected_s,
+          (es.state, es.report()["executed"][0].get("achieved_deg"), ts))
+
 print("\n" + "-" * 50)
 print("pass {}  fail {}".format(len(PASS), len(FAIL)))
 sys.exit(1 if FAIL else 0)
