@@ -1,0 +1,27 @@
+# Python dependencies, by what you want to run. Nothing here is needed for
+# ./run_tests.sh, mission_ctl, policy_pack or llm/coexist.py: those use the
+# Python 3.8+ standard library only.
+#
+# Plain-Python tools on the dev box: the figures (scripts/plot_gain_sweep.py,
+# scripts/plot_m1_figures.py), the demo video (scripts/make_demo_video.py, which
+# also needs an ffmpeg binary) and run archiving (scripts/archive_run.py).
+#   pip install -r requirements.txt
+matplotlib>=3.5        # used with 3.5.1 and 3.8.4
+numpy>=1.21,<2         # used with 1.21.5 and 1.26.4
+tensorboard>=2.10      # archive_run.py, plot_m1_figures.py read the event files; used with 2.20.0
+
+# Not installed from here, on purpose:
+#
+# - Training and simulation (tasks/, scripts/ run through isaaclab.sh):
+#   Isaac Sim 4.5.0 + Isaac Lab 2.1.0, torch 2.5.1+cu118, rsl-rl-lib 2.3.1,
+#   gymnasium 0.29.1. Install Isaac Lab by its own instructions; the exact
+#   environment of the deployed run is
+#   experiments/2026-08-19_11-03-32_week04_nohead/pip_freeze.txt.
+# - deploy/ on the dev box: deploy/setup.sh creates deploy/.venv with
+#   tensorrt==10.7.0, numpy<2 and onnx (TensorRT 10.3 computes wrong answers on
+#   this policy; see deploy/README.md).
+# - The robot: JetPack 5.1.1 supplies TensorRT 8.5.2 and CUDA 11.4; rclpy and
+#   std_msgs come from ROS 2 foxy; the Unitree SDK from Unitree.
+# - The language model: an Ollama server (v0.34.4 on the robot, see llm/README.md)
+#   with qwen3:1.7b. mission_ctl talks to it over HTTP with urllib; there is
+#   no Python client library.

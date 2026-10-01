@@ -1,8 +1,10 @@
 # Definition of done — checklist (2026-09-29)
 
-The project's closing checklist (Week 12 plan, "对照 PRD §12"). The PRD itself is not in
-this repository; the requirement IDs below are the ones the week plans cite, each with
-the evidence that closes it. **Status legend:** ✅ met · ⚖️ waived or cut, with evidence ·
+The project's closing checklist, written at the end of the 12-week plan against the
+project's requirements document. That document and the week plans are not published, so
+each gate (PG-n) and requirement (FR-xn) below is restated in its own row, with the
+evidence that closes it; the ID scheme is explained in the top-level README's
+[*How the project was organised*](../README.md#how-the-project-was-organised). **Status legend:** ✅ met · ⚖️ waived or cut, with evidence ·
 ⏳ met, evidence being archived · ◻ open.
 
 ## Gates
@@ -43,11 +45,14 @@ the evidence that closes it. **Status legend:** ✅ met · ⚖️ waived or cut,
 ## Clean-copy check (PG-7)
 
 The tree that would be committed was exported to an empty directory (no `logs/`, no
-`deploy/artifacts/`, no USD) and each "none"-row of README *Reproducing* was run there:
+`deploy/artifacts/`, no USD) on 2026-09-29 and each "none"-row of README *Reproducing* was
+run there. Since then the same checks run on every push in CI from a fresh clone
+(`./run_tests.sh`; the badge on the top-level README); test counts are in its output,
+not copied here.
 
-- `models/week04_nohead/SHA256SUMS`: 4/4 OK
-- `mission_ctl/tests/test_core.py`: 88/88
-- `policy_pack/tests/run_tests.sh`: 12/12 — **failed before this check** (it needed the
+- `models/week04_nohead/SHA256SUMS`: all files match
+- `mission_ctl/tests/test_core.py`: all pass
+- `policy_pack/tests/run_tests.sh`: all pass — **failed before this check** (it needed the
   untracked `deploy/artifacts/`); `make_bundle.py` now falls back to `models/`
 - stage A figure redrawn from the committed JSON: byte-identical to `docs/stageA_kp_sweep.png`
 - the GPU path: the simulated sweep **failed before this check** — the robot's USD is a
@@ -56,6 +61,6 @@ The tree that would be committed was exported to an empty directory (no `logs/`,
   the clean copy with the policy from `models/` and reproduced **all 16 points exactly**,
   same stable domain.
 
-Not done: a check on a second machine or by a second person, which the Week 12 plan
-recommends. Everything above ran on the development box, in a directory with no access to
+Not done: a check on a second machine or by a second person, which the closing plan
+recommended (CI now covers the second machine for the no-GPU checks). Everything above ran on the development box, in a directory with no access to
 the untracked files.

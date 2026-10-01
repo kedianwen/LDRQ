@@ -1,0 +1,26 @@
+# The checks that need no GPU, no ROS and no robot (see run_tests.sh).
+# Python 3.8 is the robot's (JetPack 5 / Ubuntu 20.04); 3.10 is the dev box's.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-gpu:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.8", "3.10"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: run_tests.sh (standard library only, nothing installed)
+        run: ./run_tests.sh -v

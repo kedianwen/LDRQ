@@ -14,7 +14,7 @@ bash policy_pack/install_bundle.sh bundles/<run_id> --dry-run   # only show what
 
 > **Status (2026-09-27):** this is stage D of the project (see the
 > [top-level README](../README.md#how-the-project-was-organised)). Tested on the dev box
-> (12/12; generated configs byte-identical to the repository's). **Not yet run on the robot** — steps 5–8 of `install_bundle.sh`
+> (all pass; generated configs byte-identical to the repository's). **Not yet run on the robot** — steps 5–8 of `install_bundle.sh`
 > (colcon, engine build, parity) only run there, and are stage D's acceptance. The robot
 > runs Python 3.8; these scripts have only been executed on 3.10.
 
@@ -71,7 +71,7 @@ you read, not something you have to remember.
 
 ## What `verify_bundle.py` refuses
 
-`tests/run_tests.sh` actually builds each of these and runs it (12/12 pass), and asserts
+`tests/run_tests.sh` actually builds each of these and runs it, and asserts
 the **reason** for the refusal, not only the exit code — a validator that refuses for the
 wrong reason points people the wrong way.
 

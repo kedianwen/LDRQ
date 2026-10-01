@@ -1,0 +1,30 @@
+R1process
+Copyright 2026 the R1process authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE), except for the
+third-party material listed below, which keeps its own licence.
+
+1. assets/r1/R1.urdf and assets/r1/meshes/
+   The Unitree R1 robot description, copied unmodified from Unitree Robotics'
+   unitree_ros repository, robots/r1_description/
+   (https://github.com/unitreerobotics/unitree_ros, file last changed upstream in
+   commit bbd833d6ce9826c3ae4e3d44174d99d940111c32).
+   Copyright (c) 2016-2022 HangZhou YuShu TECHNOLOGY CO.,LTD. ("Unitree Robotics").
+   BSD 3-Clause License, reproduced in assets/r1/LICENSE.
+
+2. Files whose header reads "Copyright (c) 2022-2025, The Isaac Lab Project
+   Developers" (under tasks/, scripts/, assets/r1/r1.py, deploy/tools/)
+   Adapted from Isaac Lab (https://github.com/isaac-sim/IsaacLab) examples and
+   templates. BSD 3-Clause License; the header is kept in each file.
+
+3. deploy/ros2_ws/src/r1_hw_bridge/src/robot_io.cpp, Crc32Core()
+   Reimplements the CRC that Unitree's low-level protocol requires, following
+   the routine in Unitree Robotics' unitree_sdk2 examples
+   (https://github.com/unitreerobotics/unitree_sdk2, BSD 3-Clause License).
+
+The trained policy in models/ was produced by this project and is covered by
+the Apache License, Version 2.0. Using it on a robot is at your own risk; see
+"Running on the robot" in README.md.
+
+"Unitree" and "R1" are trademarks of Unitree Robotics. This project is not
+affiliated with or endorsed by Unitree Robotics.

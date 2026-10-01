@@ -1,5 +1,8 @@
 # R1process
 
+[![tests](https://github.com/kedianwen/LDRQ/actions/workflows/tests.yml/badge.svg)](https://github.com/kedianwen/LDRQ/actions/workflows/tests.yml)
+[![licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+
 A walking policy for the **Unitree R1** humanoid, taken from simulation to the real robot,
 and then given an English command line:
 
@@ -36,11 +39,10 @@ machine with Python 3.8+, with no GPU, no ROS and no robot.
 ```bash
 git clone https://github.com/kedianwen/LDRQ.git && cd LDRQ
 
-# the command layer and policy packaging: unit tests (~2 s, standard library only)
-python3 mission_ctl/tests/test_core.py | tail -1        # pass 106  fail 0
-python3 mission_ctl/tests/test_nl.py   | tail -1        # pass 132  fail 0
-python3 llm/coexist.py --selftest      | tail -1        # selftest: OK
-bash policy_pack/tests/run_tests.sh    | tail -1        # pass 12  fail 0
+# every check that needs no GPU, ROS or robot (~3 s, standard library only):
+# command layer, English front end, eval sets, coexistence selftest,
+# policy packaging, the deployed policy's SHA256, a dry run. CI runs the same script.
+./run_tests.sh
 
 # what the robot says it can do, generated from the deployed configuration
 python3 mission_ctl/r1_mission_cli.py capability
@@ -52,7 +54,9 @@ python3 mission_ctl/r1_mission_cli.py run "walk 3s@0.3; turn left 90" --dry-run
 To try the English front end as well, run [Ollama](https://ollama.com) with
 `ollama pull qwen3:1.7b`, then
 `python3 mission_ctl/r1_mission_cli.py ask "walk forward for 3 seconds, then turn left" --dry-run`.
-It prints the parsed plan, or the reason it refuses.
+It prints the parsed plan, or the reason it refuses. The plotting and video tools need
+`pip install -r requirements.txt`; [requirements.txt](requirements.txt) also says where
+the simulation, TensorRT and robot dependencies come from.
 
 ## How the project was organised
 
@@ -129,10 +133,17 @@ knob; the robot follows English instructions through a model running on its own 
 | `llm/` | the model server on the robot: Ollama for JetPack 5, health checks, the control-loop coexistence test | stage C | [llm/README.md](llm/README.md) |
 | `docs/` | results: the technical report, per-stage write-ups, figures, robot evidence | all | [docs/README.md](docs/README.md) |
 
-`kdw_deploy.tar.gz` at the top level is the snapshot of the robot's deploy tree from
-W07 (`~/kdw_deploy` on the robot), including the Orin-built binaries. It is kept because
-it is the base every later on-robot update was layered on; see
-[*Running on the robot*](#running-on-the-robot).
+The W07 snapshot of the robot's deploy tree (Orin-built binaries and engines, extracted
+to `~/kdw_deploy` on the robot) is a [GitHub Release](https://github.com/kedianwen/LDRQ/releases/tag/orin-snapshot-w07),
+not a file in the repository; `bash deploy/tools/fetch_orin_snapshot.sh` downloads it and
+checks its SHA256.
+
+## Licence
+
+Apache License 2.0 ([LICENSE](LICENSE)), except the R1 URDF and meshes in `assets/r1/`,
+which are Unitree Robotics' files under their BSD 3-Clause licence
+([assets/r1/LICENSE](assets/r1/LICENSE)), and files adapted from Isaac Lab, which keep its
+BSD 3-Clause header. Details: [NOTICE](NOTICE).
 
 ## Running on the robot
 
@@ -226,7 +237,7 @@ output (each script prints `[ok]` lines or writes its report), not the exit code
 
 | result | needs | command |
 |---|---|---|
-| unit tests: command layer, policy packaging | none | `python3 mission_ctl/tests/test_core.py` · `python3 mission_ctl/tests/test_nl.py` · `python3 llm/coexist.py --selftest` · `bash policy_pack/tests/run_tests.sh` |
+| unit tests: command layer, policy packaging, model checksums | none | `./run_tests.sh` |
 | stage A figure, from the committed data | none (matplotlib) | `python3 scripts/plot_gain_sweep.py --sim docs/stageA_kp_sweep_sim.json --real docs/stageA_kp_sweep_real.json --out docs/stageA_kp_sweep.png` |
 | training config still matches the deployed run | GPU | `~/IsaacLab/isaaclab.sh -p scripts/verify_repro.py --headless --run 2026-08-19_11-03-32_week04_nohead` |
 | PG-1 tracking table | GPU | `~/IsaacLab/isaaclab.sh -p scripts/eval_baseline.py --headless --num_envs 64 --checkpoint models/week04_nohead/model_2999.pt` |

@@ -171,8 +171,9 @@ The artefact that travels is `policy.onnx` plus `interface/policy_interface.*`.
 Engines do not travel.
 
 1. Copy `deploy/` to the Jetson, minus `.venv/`, `third_party/` and `artifacts/*.plan`,
-   as a `.tar.gz` (a zip loses the execute bits). `../kdw_deploy.tar.gz` is the tree
-   that was copied in W07, Orin build output included; it extracts to `~/kdw_deploy`.
+   as a `.tar.gz` (a zip loses the execute bits). The tree that was copied in W07,
+   Orin build output included, is a release asset: `bash tools/fetch_orin_snapshot.sh --extract`
+   puts it at `~/kdw_deploy`.
 2. Do **not** run `setup.sh` — JetPack supplies TensorRT and CUDA. `env.sh`
    detects the absence of `third_party/` and falls back to `/usr`.
 3. `colcon build`, then `r1_build_engine` on the Jetson.

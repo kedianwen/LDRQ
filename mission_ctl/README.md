@@ -33,7 +33,8 @@ trace. Only a live run needs rclpy and the deploy stack from [`../deploy/`](../d
 > - **`ask`:** the held-out English sets scored the same on the Orin as on the dev box
 >   (77/80), and 11 instructions ran end to end, each executed or refused as asked
 >   ([docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md)).
-> - Tests: `tests/test_core.py` 106, `tests/test_nl.py` 132, on Python 3.8 and 3.10.
+> - Tests: `tests/test_core.py` and `tests/test_nl.py` pass on Python 3.8 (the robot's) and
+>   3.10; CI runs both on every push (`../run_tests.sh`).
 
 ## Why the interface is Python, not bash, not `ros2 param set`
 
@@ -113,8 +114,8 @@ the envelope actually enforced.
 ## Tests
 
 ```bash
-python3 tests/test_core.py      # 106 tests; no ROS, no pytest, no robot
-python3 tests/test_nl.py        # 132 tests: normalize, translate, provenance, replies, and
+python3 tests/test_core.py      # no ROS, no pytest, no robot
+python3 tests/test_nl.py        # normalize, translate, provenance, replies, and
                                 # `ask` end to end against a stand-in model server on 127.0.0.1
 python3 eval/run_nl_eval.py --check --set all   # the eval sets agree with the shipped config
 ```

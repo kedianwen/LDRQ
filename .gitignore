@@ -20,3 +20,24 @@ outputs/
 
 # OS
 .DS_Store
+
+# Release-sized and private material belongs in GitHub Releases or nowhere,
+# never in history: rewriting history to remove a file is the only fix.
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+*.7z
+*.mp4
+*.mov
+*.avi
+!docs/w07_walk_push_recovery.mp4
+# TensorRT engines are not portable (see deploy/.gitignore)
+*.plan
+*.engine
+# Credentials
+.env
+*.pem
+*.key
+id_rsa*
+id_ed25519*
