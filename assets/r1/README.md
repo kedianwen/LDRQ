@@ -1,6 +1,9 @@
 # assets/r1/
 
 The R1 humanoid: source-of-truth URDF plus the Isaac Lab config generated from it.
+26 joints (legs 2×6, waist 2, arms 2×5, head 2); the policy drives 24 of them (not the
+head). Built in W01 and corrected in W04, when the actuator limits and gains were found
+to be stronger than the real hardware's (see `r1.py`'s comments).
 
 | Path | What it is | Tracked in git? |
 |---|---|---|

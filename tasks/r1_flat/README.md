@@ -1,28 +1,48 @@
 # tasks/r1_flat/
 
-`Isaac-Velocity-Flat-R1-v0` — R1's flat-ground velocity-tracking task
-(Week02: manager-based task skeleton + standing check).
+`Isaac-Velocity-Flat-R1-v0`: R1 walking on flat ground, tracking a commanded forward
+speed and yaw rate. The deployed policy
+([`models/week04_nohead/`](../../models/week04_nohead/)) was trained on this task as it
+stands. Built over W02–W04 of the project plan (W02 skeleton and standing, W03 rewards
+and the first gait, W04 randomisation and the final interface; see the
+[top-level README](../../README.md#how-the-project-was-organised)).
 
-| File | What's in it |
+| file | what's in it |
 |---|---|
-| `__init__.py` | `gym.register()` for `Isaac-Velocity-Flat-R1-v0` and its `-Play-v0` variant. No `rsl_rl_cfg_entry_point` yet — that's added when Week03 starts training. |
-| `flat_env_cfg.py` | `R1FlatEnvCfg`: scene, actions, observations, events, rewards, terminations. See the module docstring for what's adapted from Isaac Lab's H1 example vs. R1-specific. |
+| `__init__.py` | `gym.register()` for `Isaac-Velocity-Flat-R1-v0` and its `-Play-v0` variant (fewer envs, no randomisation), both with the PPO config as `rsl_rl_cfg_entry_point` |
+| `flat_env_cfg.py` | `R1FlatEnvCfg`: scene, commands, actions, observations, randomisation events, rewards, terminations, command curriculum. Each config class's docstring says why it is the way it is |
+| `mdp.py` | R1-specific terms not in Isaac Lab: the touchdown-gated swing reward, the command-range curriculum, the action-level control delay |
+| `symmetry.py` | the left/right mirror map for PPO's symmetry augmentation |
+| `agents/rsl_rl_ppo_cfg.py` | PPO hyperparameters, seed 42, 3000 iterations, symmetry augmentation on |
 
-## What's real vs. placeholder right now
+## The task in one table
 
-- **Actions, scene, task registration**: real, verified (`scripts/random_agent_r1.py` steps it without crashing).
-- **Observations**: real design — `policy` group is pure proprioception (deployable), `critic` group adds privileged state (base linear velocity, incoming wrench). rsl_rl auto-detects the `critic` group name for asymmetric actor-critic training; this is set up now so Week03 needs no rework.
-- **Rewards**: generic template placeholders with R1's foot link name filled in. Not tuned — that's Week03 (FR-T3).
-- **Events (domain randomization)**: episodic reset only. Friction/mass/push/delay DR is Week04 (FR-T5) — deliberately not here yet.
+| | |
+|---|---|
+| **action** | 24 joint-position targets (legs 2×6, waist 2, arms 2×5; the head is not actuated), per-group scale `0.25 × effort / stiffness`, at 50 Hz (`sim.dt = 0.005`, `decimation = 4`) |
+| **policy observation** | 85 floats per frame, proprioception only (angular velocity, gravity direction, command, joint positions and velocities, last action), the last 5 frames stacked → **425**. No base linear velocity: the robot cannot measure it |
+| **critic observation** | adds privileged simulator state (base linear velocity, external wrench, foot friction): asymmetric actor-critic |
+| **commands** | forward 0 → 1.0 m/s, yaw rate ±0.5 rad/s, reached by a curriculum over the first 1000 iterations; **sideways is pinned to 0 and there is no backward**, which is why the robot refuses both |
+| **randomisation** | friction 0.6–1.2, body mass ±10 %, actuator gains ×0.85–1.15, pushes ±0.5 m/s every 10–15 s, control delay 0–1 step |
+| **rewards** | velocity tracking; a swing reward paid only at touchdown for a 0.15–0.45 s swing; penalties including feet held up, foot slide, joint limits, upper-body and hip drift, falling |
+| **termination** | base below 0.51 m, tilt beyond 0.7 rad, or the 20 s episode ends |
 
-## The standing-gains / timestep dependency
+## Traps this task already walked into
 
-`R1_CFG` in `assets/r1/r1.py` uses high leg-joint PD stiffness (~1200 N·m/rad)
-to hold R1's default stance (see that file's comments for the full diagnosis —
-short version: a whole-body inverted-pendulum problem, not per-joint
-compliance, and it also required a finer physics timestep to be numerically
-stable). This env's `self.sim.dt = 0.002` / `self.decimation = 10` matches
-that requirement. If either the gains or the timestep change, re-check
-standing stability with `scripts/inspect_r1.py` before assuming training will
-behave sanely — a numerically unstable stiff articulation will look like a
-policy that can't learn to stand, not like a config bug.
+Each is fixed in the code and explained where it is fixed; listed so nobody undoes one:
+
+- **`feet_air_time_positive_biped` is maximised by standing on one leg.** It is not used.
+  The swing reward is paid at touchdown instead (`mdp.py`). W03 spent three training runs
+  on it; see [`experiments/README.md`](../../experiments/README.md).
+- **Any actuated joint without a reward on it becomes a balance aid.** The head ended up
+  pinned at its limit, so it was taken out of the action space (24 actions, not 26).
+- **Actuator limits come from the robot's spec, not from what makes standing pass.**
+  The W02 values were 2.5–3× stronger than the hardware.
+- **Stiff leg gains need a fine timestep and an implicit actuator.** With the W02 gains
+  (~1200 N·m/rad) the robot collapsed at any coarser step than `dt = 0.002`, whatever the
+  gains; with an explicit PD actuator it collapsed even then. Since the gains were
+  corrected to the hardware's 100/40 (W04), `dt = 0.005` is stable and is what the
+  deployed policy trained at. If you raise the gains, re-check standing with
+  `scripts/inspect_r1.py` before training.
+
+Longer write-ups of each are in [`scripts/README.md`](../../scripts/README.md#known-gotchas-already-worked-around-in-the-code-documented-here-so-nobody-re-discovers-them-the-hard-way).

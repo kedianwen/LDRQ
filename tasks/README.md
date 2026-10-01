@@ -4,7 +4,8 @@ Local, project-only Isaac Lab gym task definitions — one subfolder per task.
 Not part of the `isaaclab_tasks` package; these live here because R1 is our
 own robot, not something upstream Isaac Lab ships a task for.
 
-Currently: `r1_flat/` (R1 flat-ground velocity-tracking task, Week02).
+Currently: `r1_flat/`, the R1 flat-ground velocity-tracking task the deployed policy
+was trained on (built in W02–W04 of the project plan). See `r1_flat/README.md`.
 
 ## Why a separate package instead of patching Isaac Lab
 

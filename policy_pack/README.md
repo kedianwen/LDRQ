@@ -12,8 +12,9 @@ bash policy_pack/install_bundle.sh bundles/<run_id>
 bash policy_pack/install_bundle.sh bundles/<run_id> --dry-run   # only show what would change
 ```
 
-> **Status (2026-09-27):** tested on the dev box (12/12; generated configs byte-identical to
-> the repository's). **Not yet run on the robot** — steps 5–8 of `install_bundle.sh`
+> **Status (2026-09-27):** this is stage D of the project (see the
+> [top-level README](../README.md#how-the-project-was-organised)). Tested on the dev box
+> (12/12; generated configs byte-identical to the repository's). **Not yet run on the robot** — steps 5–8 of `install_bundle.sh`
 > (colcon, engine build, parity) only run there, and are stage D's acceptance. The robot
 > runs Python 3.8; these scripts have only been executed on 3.10.
 

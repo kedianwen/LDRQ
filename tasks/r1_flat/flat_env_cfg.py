@@ -27,9 +27,9 @@ from that template, per the Week02 plan:
   a "stay near default" penalty the policy can exploit arm-flailing for
   balance, which is free in sim but doesn't transfer and fights Week0X's
   future arm-task training). See RewardsCfg docstring for the full rationale.
-- Commands are narrowed for first training: lin_vel_x in [0, 0.5], lin_vel_y
-  and ang_vel_z pinned to 0 -- straight-line walking only. Widen once this
-  is learned (plan explicitly time-boxes this: "只求学起来，不求达标").
+- Commands started narrow for Week03's first training (lin_vel_x in [0, 0.5],
+  no turning); since Week04 a curriculum widens them to lin_vel_x [0, 1.0]
+  and ang_vel_z [-0.5, 0.5]. lin_vel_y stays 0 throughout (see CommandsCfg).
 """
 
 import math

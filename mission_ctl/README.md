@@ -19,18 +19,21 @@ python3 r1_mission_cli.py ask-check                       # is the model up and 
 python3 r1_mission_cli.py ask-check --once                # one request, exactly as `ask` sends it (the health check)
 ```
 
-> **Status (2026-09-28): on the real robot.** 68/68 on the robot's Python 3.8.10;
-> `stand 3s` and `walk 3s@0.2` both `DONE`; it drove all ten recordings of the `kp_scale`
-> sweep. Two things were changed after that session (see *First contact with the robot*);
-> the suite is now 101 tests. Still to be accepted on their own: turn angle against ground
-> truth, and whether Ctrl-C sends a zero under foxy (stage B).
+Everything with `--dry-run`, plus `capability` and the tests, runs on any machine with
+Python 3.8+ and no ROS: the executor drives a simulated bridge and prints the command
+trace. Only a live run needs rclpy and the deploy stack from [`../deploy/`](../deploy/).
 
-> **Stage C (2026-09-30): `ask` works on the robot.** Evaluated offline first. The same
-> day on the Orin, the held-out sets scored the same as on the dev box, and 11 English
-> instructions ran end to end. All of them executed or were refused as asked. The session
-> exposed one bug here: a Ctrl-C'd step recorded no running time. It is fixed, and the
-> suites are now 106 + 132 tests. See *`ask`* below and
-> [docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md).
+> **Status (2026-09-30): accepted on the real robot.** Built and accepted as stage B (the
+> time/angle/speed core) and stage C (`ask`) of the project; see the
+> [top-level README](../README.md#how-the-project-was-organised).
+> - **Core:** drove all recordings of the `kp_scale` sweep; 10 closed-loop turns and the
+>   demo sequence all `DONE`, within 1.6° by the IMU; the four abort paths (Ctrl-C,
+>   `kill -9`, bridge DEGRADED, no stack) all stop the robot
+>   ([docs/stageB_mission_runs.md](../docs/stageB_mission_runs.md)).
+> - **`ask`:** the held-out English sets scored the same on the Orin as on the dev box
+>   (77/80), and 11 instructions ran end to end, each executed or refused as asked
+>   ([docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md)).
+> - Tests: `tests/test_core.py` 106, `tests/test_nl.py` 132, on Python 3.8 and 3.10.
 
 ## Why the interface is Python, not bash, not `ros2 param set`
 

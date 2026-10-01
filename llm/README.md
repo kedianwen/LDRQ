@@ -12,9 +12,17 @@ is in [docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md).
 | `env_check.sh` | robot | memory, disk, clocks, and whether any route to a hosted model exists (plan 3.1) |
 | `make_runtime.sh` | dev box | builds the runtime package: Ollama for JetPack 5 plus the models |
 
+"Plan 3.1" and "plan 3.6" are items of the stage C plan, which is not in this repository:
+3.1 says the model runs on the robot with no route to a hosted model; 3.6 is the
+coexistence criterion (while the model decodes, policy inference p99 ≤ 2 ms and setpoint
+lag p95 ≤ idle + 1 ms). How the model fits into the whole system:
+[docs/system_architecture.md](../docs/system_architecture.md).
+
 The runtime (`ollama/`) and the models (`models/`) are not in git (licences, ~3.5 GB).
-They come in `~/r1_stageC_llm_runtime_<date>.tar.gz`, which extracts next to these
-scripts.
+`make_runtime.sh` builds them into one package from the pinned Ollama release and a
+model store (*Build the runtime package* below); it extracts next to these scripts.
+On any other machine, a stock Ollama with `ollama pull qwen3:1.7b` serves the same model
+to `ask`.
 
 ## The runtime, and why it is built this way
 

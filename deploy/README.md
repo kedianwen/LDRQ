@@ -1,9 +1,23 @@
 # deploy/ — TensorRT + ROS 2 runner for the R1 policy
 
-Closes Week04's deferred C++/ROS2 track and is the foundation W05 (ONNX export
-+ TensorRT engine) and W06 (C++ ROS2 control node) build on. Self-contained:
+The on-robot half of the project, built in W05–W08 of the project plan (W05 ONNX →
+TensorRT on the Orin, W06 the C++/ROS 2 hardware bridge, W07 walking on the real robot,
+W08 precision tiers; see *How the project was organised* in the
+[top-level README](../README.md#how-the-project-was-organised)). Self-contained:
 nothing here needs sudo, and the training environment (`conda env_isaaclab`) is
 never touched.
+
+The same tree builds on two machines: the dev box (x86, TensorRT 10.7, ROS 2 humble),
+where the *Quick start* below runs the policy with no robot, and the robot's Orin NX
+(JetPack 5.1.1, TensorRT 8.5.2, ROS 2 foxy), where *Porting to the robot* applies.
+
+At run time on the robot, two processes form the control loop:
+
+```
+rt/lowstate --> r1_hw_bridge --~/obs (50 Hz)--> r1_policy_node (TensorRT)
+rt/lowcmd  <--  (PD, 500 Hz) <--~/joint_target--
+                     ^ ~/cmd_vel  [vx, vy, wz] from mission_ctl (../mission_ctl/)
+```
 
 The policy it runs is `2026-08-19_11-03-32_week04_nohead` — 425-dim
 observation, 24-dim action, 50 Hz.
@@ -83,8 +97,9 @@ requires a change here:
 - **`../mission_ctl/`** — drives the robot by time, angle and speed using the
   topics the bridge already has (`~/cmd_vel` out, `~/imu` and `~/status` in).
   Turning is closed-loop on the IMU heading; distance is open-loop
-  time × a calibrated speed, and is reported with an error bar because there is
-  no base linear velocity in the observation and no odometry topic.
+  time × the commanded speed, and is labelled "not measured", because there is
+  no base linear velocity in the observation and no odometry topic. Its `ask`
+  command adds English instructions through a local model served from `../llm/`.
 
 ## Two findings that change how W05/W06 must be done
 
@@ -146,15 +161,18 @@ walking segments that do not exist yet (the observation is five stacked frames
 with 80% overlap, so 60 s of single-speed walking is one operating point). FR-Q3
 is waived with evidence; FR-Q4 is satisfied at two precisions. M3's controlled
 perturbation is `kp_scale` — the actuator-gain error, already a launch argument
-on the bridge — instead of numeric precision. See the repo README and
-`~/kdw/stage_plan/`.
+on the bridge — instead of numeric precision. See the repo README,
+[`docs/int8_waiver.md`](../docs/int8_waiver.md) and
+[`docs/stageA_kp_sweep.md`](../docs/stageA_kp_sweep.md).
 
 ## Porting to the robot (W06)
 
 The artefact that travels is `policy.onnx` plus `interface/policy_interface.*`.
 Engines do not travel.
 
-1. Copy `deploy/` to the Jetson, minus `.venv/`, `third_party/` and `artifacts/*.plan`.
+1. Copy `deploy/` to the Jetson, minus `.venv/`, `third_party/` and `artifacts/*.plan`,
+   as a `.tar.gz` (a zip loses the execute bits). `../kdw_deploy.tar.gz` is the tree
+   that was copied in W07, Orin build output included; it extracts to `~/kdw_deploy`.
 2. Do **not** run `setup.sh` — JetPack supplies TensorRT and CUDA. `env.sh`
    detects the absence of `third_party/` and falls back to `/usr`.
 3. `colcon build`, then `r1_build_engine` on the Jetson.

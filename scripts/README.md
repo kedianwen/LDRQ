@@ -82,8 +82,10 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   or tuning problem: switching to `dt=0.002` (500Hz) with the *same* gains
   fixed it completely (rock-stable for 10+ s). If a stiff articulation is
   falling over in a way that's insensitive to gain changes, suspect the
-  timestep before the controller. `tasks/r1_flat/flat_env_cfg.py` uses the
-  same `dt=0.002` (with `decimation=10` to keep the ~50Hz control rate).
+  timestep before the controller. The task used `dt=0.002` / `decimation=10`
+  through W04's first run; once the gains were corrected to the hardware's
+  100/40 (next entry) the constraint went away, and the deployed policy trained
+  at `dt=0.005` / `decimation=4` (`tasks/r1_flat/flat_env_cfg.py`).
 - **Check the robot's own spec before inventing actuator numbers.** Week02 set
   R1's leg effort limits to 150 N·m, chosen to pass a "hold the pose under pure
   joint PD for 10s" standing test. `R1.urdf` declares 60 (hip/knee) and 50
