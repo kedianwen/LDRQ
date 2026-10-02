@@ -58,13 +58,17 @@ as-trained command-envelope clamp, a 500 ms command deadman and a DEGRADED state
 
 ## 2. Simulation and deployment results
 
+The first column names the project's pass/fail gate (PG-n) or requirement (FR-xn); all of
+them are listed with their meaning in the
+[top-level README](../README.md#what-done-meant-gates-and-requirements).
+
 | gate | measure | result |
 |---|---|---|
-| PG-1 tracking (sim) | worst mean \|vx − cmd\| over 0.3–1.0 m/s, 64 envs | **0.037 m/s** (threshold 0.15), 0 falls |
-| FR-Q1 parity (robot) | max \|TensorRT − PyTorch\| over 512 fixture vectors | **1.335e-05** (gate 1e-3) |
+| PG-1: speed tracking (sim) | worst mean \|vx − cmd\| over 0.3–1.0 m/s, 64 envs | **0.037 m/s** (threshold 0.15), 0 falls |
+| FR-Q1: parity with PyTorch (robot) | max \|TensorRT − PyTorch\| over 512 fixture vectors | **1.335e-05** (gate 1e-3) |
 | latency (robot) | inference in the 50 Hz loop | p50 ≈ 455 µs of a 20,000 µs budget (2.3 %) |
 | closed loop (robot) | bridge health | obs 50.0 Hz, cmd 500.0 Hz, crc_fail 0, setpoint lag 0.6 ms (0.03 steps) |
-| PG-2 (robot) | continuous walking, no gantry | **60 s** (operator report, 2026-09-28; video evidence being archived) |
+| PG-2: 60 s walking (robot) | continuous walking, no gantry | **≥ 79.7 s** recorded 2026-09-29 ([pg2_untethered.md](pg2_untethered.md)); video at the end of the project |
 
 Parity held across three simultaneous differences — Turing→Ampere, TensorRT 10.7→8.5.2,
 humble→foxy — which is stronger evidence than any dev-box check. Six independent

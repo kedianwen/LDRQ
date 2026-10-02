@@ -23,16 +23,20 @@ evidence that closes it; the ID scheme is explained in the top-level README's
 
 | ID | what | status | evidence |
 |---|---|---|---|
-| FR-T1 – T5 | asset, task, rewards, training, five-item DR | ✅ | W01–W04; `tasks/r1_flat/`, `experiments/` |
-| FR-T6 | reproducible training config | ✅ | `scripts/verify_repro.py` PASS on 2026-09-29 against the deployed run |
-| FR-Q1 | numerical parity of the deployed engine | ✅ | 1.335e-05 on the Orin |
-| FR-Q2 | on-robot latency | ✅ | [int8_waiver.md](int8_waiver.md) §1, technical report §2 |
-| FR-Q3 | INT8 PTQ | ⚖️ waived | [int8_waiver.md](int8_waiver.md) |
-| FR-Q4 | precision-tier benchmark | ✅ at FP32 / FP16 | [int8_waiver.md](int8_waiver.md) |
-| FR-D* | C++/ROS 2 bridge, watchdog, fault injection | ✅ | W06 7/7; `deploy/README.md` |
-| FR-R2 | robustness under a controlled physical perturbation | ✅ | knob changed from INT8 to `kp_scale`, methodology unchanged |
-| FR-R3 | DR ablation | ⚖️ cut | cut for time (2026-09-26); partly answered for the stiffness item — technical report §6 |
-| FR-R4 | sim2real gap | ✅ | [stageA_kp_sweep.md](stageA_kp_sweep.md) |
+| FR-T1 | the R1 robot model loads in Isaac Lab with the right joints and limits | ✅ | W01; `assets/r1/`, [joint_check.md](joint_check.md) |
+| FR-T2 | the training task (observations, actions, rewards, terminations, events) | ✅ | W02; `tasks/r1_flat/` |
+| FR-T3 | a velocity-tracking reward function that produces a real gait | ✅ | W03; `experiments/README.md` |
+| FR-T4 | a policy that uses only the robot's own sensors, deployable without distillation | ✅ | W04; 5-frame observation history, 425 inputs |
+| FR-T5 | five-item domain randomisation: friction, mass, motor strength, control delay, pushes | ✅ | W04; `tasks/r1_flat/flat_env_cfg.py` `EventCfg` |
+| FR-T6 | a training run reproducible exactly (seed, every setting in config) | ✅ | `scripts/verify_repro.py` PASS on 2026-09-29 against the deployed run |
+| FR-Q1 | the TensorRT engine on the robot gives the same outputs as PyTorch | ✅ | 1.335e-05 on the Orin |
+| FR-Q2 | inference latency measured on the robot | ✅ | [int8_waiver.md](int8_waiver.md) §1, technical report §2 |
+| FR-Q3 | INT8 post-training quantisation, with a calibration set | ⚖️ waived | [int8_waiver.md](int8_waiver.md) |
+| FR-Q4 | latency, size and power compared across precisions | ✅ at FP32 / FP16 | [int8_waiver.md](int8_waiver.md) |
+| FR-D* | C++/ROS 2 control node: 50 Hz policy over a 500 Hz motor loop, Unitree SDK, watchdog, fault injection | ✅ | W06 7/7; `deploy/README.md` |
+| FR-R2 | the headline robustness experiment: one controlled, physically real disturbance swept in sim and spot-checked on the robot | ✅ | knob changed from INT8 to `kp_scale`, methodology unchanged |
+| FR-R3 | domain-randomisation ablation: which item buys how much robustness | ⚖️ cut | cut for time (2026-09-26); partly answered for the stiffness item — technical report §6 |
+| FR-R4 | the sim2real gap in numbers | ✅ | [stageA_kp_sweep.md](stageA_kp_sweep.md) |
 
 ## Deliverables
 

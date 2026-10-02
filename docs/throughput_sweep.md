@@ -1,4 +1,4 @@
-# H1 flat-velocity throughput sweep on 2080Ti 11GB (RK-7)
+# H1 flat-velocity throughput sweep on 2080Ti 11GB (risk item RK-7: is this GPU fast enough to train on?)
 
 Task: `Isaac-Velocity-Flat-H1-v0`, `--headless`, 40 iterations per level, `num_steps_per_env=24`
 (from `rsl_rl_ppo_cfg.py`). This is the official-task throughput baseline required before

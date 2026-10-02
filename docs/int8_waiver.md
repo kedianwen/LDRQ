@@ -1,4 +1,4 @@
-# FR-Q3 (INT8 PTQ): waived with evidence · FR-Q4: satisfied at two precisions
+# INT8 quantisation (requirement FR-Q3): waived with evidence · precision comparison (FR-Q4): satisfied at two precisions
 
 Decided 2026-09-26. INT8 was planned for W08 as post-training quantisation with a
 calibration set, a behavioural acceptance, and a FP32/FP16/INT8 benchmark. It was cut

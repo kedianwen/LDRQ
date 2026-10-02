@@ -1,4 +1,4 @@
-# Stage A · `kp_scale` stability domain (FR-R2 / FR-R4)
+# Stage A · `kp_scale` stability domain (the robustness experiment FR-R2 and the sim2real gap FR-R4)
 
 ![kp_scale sweep](stageA_kp_sweep.png)
 

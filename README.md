@@ -33,7 +33,7 @@ machine with Python 3.8+, with no GPU, no ROS and no robot.
 |---|---|---|
 | **understand the project** | read [docs/technical_report.md](docs/technical_report.md) (the whole project in one document), then [docs/system_architecture.md](docs/system_architecture.md) (how a sentence becomes motor commands) | 30 min |
 | **run something now** | the commands below | 2 min |
-| **train or evaluate in simulation** | an NVIDIA GPU with Isaac Lab 2.1 / Isaac Sim 4.5 → [*Reproducing*](#reproducing) and [*Reproducing a training run*](#reproducing-a-training-run-fr-t6) | 1 h to set up, 1.5 h per training run |
+| **train or evaluate in simulation** | an NVIDIA GPU with Isaac Lab 2.1 / Isaac Sim 4.5 → [*Reproducing*](#reproducing) and [*Reproducing a training run*](#reproducing-a-training-run) | 1 h to set up, 1.5 h per training run |
 | **run it on an R1** | an R1 EDU (onboard Orin NX) → [deploy/README.md](deploy/README.md), then [mission_ctl/README.md](mission_ctl/README.md) and [llm/README.md](llm/README.md); read [*Running on the robot*](#running-on-the-robot) first | a day |
 
 ```bash
@@ -41,7 +41,8 @@ git clone https://github.com/kedianwen/LDRQ.git && cd LDRQ
 
 # every check that needs no GPU, ROS or robot (~3 s, standard library only):
 # command layer, English front end, eval sets, coexistence selftest,
-# policy packaging, the deployed policy's SHA256, a dry run. CI runs the same script.
+# policy packaging, the deployed policy's SHA256, Markdown links, a dry run.
+# CI runs the same script.
 ./run_tests.sh
 
 # what the robot says it can do, generated from the deployed configuration
@@ -84,11 +85,9 @@ The plans themselves, the lab notebook and the step-by-step guides used at the r
 are kept outside this repository. Everything a reader needs from them is restated here
 and in `docs/`. Three traces of them remain:
 
-- **Requirement IDs.** `PG-n` is a project gate (what "done" means, e.g. PG-1 tracking
-  error ≤ 0.15 m/s in simulation, PG-2 60 s of continuous walking on the robot). `FR-xn`
-  is a functional requirement: T training, Q quantisation/inference, D deployment,
-  R robustness. `RK-n` is a risk item. All gates and requirements, each with its status
-  and evidence: [docs/dod.md](docs/dod.md). **"Plan 3.6"** is the stage C plan's
+- **Requirement IDs** such as PG-2 or FR-Q3. They are explained in full in the next
+  section, [*What "done" meant*](#what-done-meant-gates-and-requirements). **"Plan 3.6"**
+  is the stage C plan's
   coexistence criterion: while the language model runs on the shared GPU, policy
   inference p99 ≤ 2 ms and setpoint lag p95 ≤ idle + 1 ms
   ([docs/system_architecture.md](docs/system_architecture.md#the-shared-gpu-decision-2026-09-30)).
@@ -97,6 +96,46 @@ and in `docs/`. Three traces of them remain:
 - **`experiments/*/NOTES.md`** are the original lab notes, in Chinese. Each run is
   summarised in English in [experiments/README.md](experiments/README.md), and the
   lessons are in [*What each week produced*](#what-each-week-produced) below.
+
+## What "done" meant: gates and requirements
+
+The plan defined success up front with three kinds of ID, and the documents use them as
+shorthand. Every one that appears in this repository:
+
+- **M1–M3** are the three milestones.
+- **PG-n** ("project gate") is a pass/fail test a milestone has to meet.
+- **FR-xn** ("functional requirement") is something the system must do. The letter says
+  which part: **T** training, **Q** quantisation and inference, **D** deployment on the
+  robot, **R** robustness.
+- **RK-n** is a risk the plan asked to check early.
+
+| ID | in plain words | outcome |
+|---|---|---|
+| **M1** | **Training** (W01–W04): a policy that walks in simulation and can be deployed as is | passed 2026-08-19 |
+| **M2** | **Deployment** (W05–W08): that policy walking on the real robot, on its own computer | met; INT8 waived |
+| **M3** | **Robustness and command layer** (stages A–D): one measured sim2real experiment, a way to command the robot, report and repository | A–C done; D waiting for the robot |
+| PG-1 | in simulation, forward-speed tracking error ≤ 0.15 m/s anywhere in 0.5–1.0 m/s | ✅ worst 0.037 m/s, no falls |
+| PG-2 | on the real robot, 60 s of continuous walking (a weaker fallback was allowed: walking in the gantry plus a gap analysis) | ✅ ≥ 79.7 s untethered |
+| PG-3 | the inference chain runs on the robot's own Orin and matches the PyTorch reference | ✅ max difference 1.3e-5, inference ~0.5 ms of a 20 ms step |
+| PG-4 | precision options (FP32 / FP16 / INT8) measured on the robot, and the train → robot loop closed | ✅ FP32 and FP16; INT8 waived (FR-Q3) |
+| PG-5 | the robustness experiment run and plotted | ✅ the `kp_scale` stability domain |
+| PG-6 | the sim2real gap put in numbers | ✅ real 1.10–1.50 against sim 0.80–2.00+, on the same figure |
+| PG-7 | a third party can reproduce the repository | ✅ clean-copy check, and CI on every push |
+| FR-T1 – T3 | robot model in Isaac Lab, the training task, the reward function | ✅ W01–W03 |
+| FR-T4 | the policy uses only what the robot can sense, so it deploys without a teacher-student distillation step (done with a 5-frame observation history) | ✅ W04 |
+| FR-T5 | five-item domain randomisation: friction, mass, motor strength, control delay, pushes | ✅ W04 |
+| FR-T6 | a training run can be reproduced exactly: fixed seed, every setting in config | ✅ `scripts/verify_repro.py` |
+| FR-Q1 | the exported model (ONNX → TensorRT) gives the same numbers as PyTorch | ✅ on the Orin |
+| FR-Q2 | inference latency measured on the robot | ✅ |
+| FR-Q3 | INT8 post-training quantisation, with a calibration set | ⚖️ **waived**: no speed gain, a larger engine, no defensible calibration data ([docs/int8_waiver.md](docs/int8_waiver.md)) |
+| FR-Q4 | latency, size and power compared across precisions | ✅ at FP32 and FP16 |
+| FR-D* | the C++/ROS 2 control node: 50 Hz policy over a 500 Hz motor loop, Unitree SDK integration, watchdog and fault injection | ✅ W06 |
+| FR-R2 | **the headline experiment**: sweep one controlled, physically real disturbance in simulation, spot-check it on the robot, draw the stability domain. Planned with INT8 as the disturbance; done with actuator stiffness `kp_scale` | ✅ stage A |
+| FR-R3 | domain-randomisation ablation: which randomisation item buys how much robustness | ⚖️ cut for time |
+| FR-R4 | quantify the sim2real gap | ✅ the offset between the sim curve and the real points of FR-R2 |
+| RK-7 | is a single RTX 2080 Ti fast enough to train on? | ✅ answered in W01 ([docs/throughput_sweep.md](docs/throughput_sweep.md)) |
+
+The checklist with the evidence for each row is [docs/dod.md](docs/dod.md).
 
 ## Status
 
@@ -107,13 +146,13 @@ knob; the robot follows English instructions through a model running on its own 
 
 | Milestone | Span | Verdict |
 |---|---|---|
-| M1 · training | W01–W04 | **passed** 2026-08-19 — PG-1 met with 4x margin |
-| M2 · deployment | W05–W08 | **met** — PG-2 60 s untethered (video being archived), parity 1.335e-05 on the Orin, FR-Q3 (INT8) waived with evidence, FR-Q4 at FP32/FP16 |
+| M1 · training | W01–W04 | **passed** 2026-08-19 — speed tracking (PG-1) met with 4x margin |
+| M2 · deployment | W05–W08 | **met** — 60 s untethered walk (PG-2; video being archived), same numbers as PyTorch on the Orin to 1.3e-5 (FR-Q1), INT8 waived with evidence (FR-Q3), precisions compared at FP32/FP16 (FR-Q4) |
 | M3 · robustness + command layer | stages A–D | **A, B, C done** (videos at the end); D written and self-tested, awaiting the robot |
 
 | Stage | What it delivers | State |
 |---|---|---|
-| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), PG-2 evidence, report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **done** except the PG-2 video: sim 0.80–2.00+ vs real **1.10–1.50** (both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). Report, INT8 waiver, DoD in `docs/`; demo assembled except the PG-2 clip |
+| **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), evidence for the 60 s walk (PG-2), report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **done** except the PG-2 video: sim 0.80–2.00+ vs real **1.10–1.50** (both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). Report, INT8 waiver, DoD in `docs/`; demo assembled except the PG-2 clip |
 | **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | **done** 2026-09-30 except the video. Turn response on the spot at kp 1.0/1.2/1.3: every rate 0.15–0.5 rad/s turns at ~0.8 of the command; a small yaw rate is lost *while walking*, so the robot turns on the spot only ([docs/stageB_turn_response.md](docs/stageB_turn_response.md)). At kp 1.3: 10 closed-loop turns and the demo sequence all DONE, 0 timeouts, within 1.6° by the IMU; abort paths 4/4 (Ctrl-C, `kill -9` → deadman, DEGRADED, no stack) ([docs/stageB_mission_runs.md](docs/stageB_mission_runs.md)). By decision, turn angle is the IMU reading and speed is the command |
 | **C** | LLM command layer: **English** instruction → schema-constrained JSON → deterministic checks → execution → templated report | **done** 2026-09-30 except the video. `mission_ctl ask`: the model transcribes, deterministic code judges (units normalised first; every distance, time and angle must have been said; refusals from the deployed envelope; all or nothing), the operator confirms the parsed plan, the reply is a template. Offline eval of 7 small models on three held-out sets frozen in turn: **qwen3:1.7b 75/80 clean**, 100 % valid JSON. **On the Orin** (Ollama 0.34.4 for JetPack 5): the same 77/80 as the dev box, 0.65 s p50; 11 instructions end to end, all executed or refused as asked. The model stays on the GPU by decision: it holds the policy's inference at ~5 ms, inside every control-loop limit but above plan 3.6's 2 ms target, which is the optimisation goal. **Each `ask` stands alone** ([docs/stageC_nl_eval.md](docs/stageC_nl_eval.md)) |
 | **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
@@ -176,8 +215,8 @@ silent — the chain reports success and returns a plausible wrong answer.
 | **W01** · environment + asset | URDF→USD conversion, `ArticulationCfg`, joint/limit verification, 2080 Ti throughput sweep. Closed 2026-08-12. | R1 is the **EDU** version with an onboard Orin NX, so deployment needs no external compute board — this set the whole M2 plan. |
 | **W02** · task skeleton + standing | `tasks/r1_flat/` as a standalone package registering `Isaac-Velocity-Flat-R1-v0`, observations split policy/critic for asymmetric AC, static standing ≥10 s. Closed 2026-08-14. | Standing needed **`sim dt=0.002`**, not more gain tuning. At the default step the contact solve could not hold a 26-DoF biped, and that reads as a tuning problem. (The real cause was gains far stiffer than the hardware's; after W04 corrected them, `dt=0.005` was stable again.) |
 | **W03** · rewards + first training | First real alternating gait (`touchdown_gate`), plus `scripts/diagnose_gait.py` (per-foot air-time fraction + FFT phase). Closed 2026-08-15. | **`feet_air_time_positive_biped` is maximised by never stepping.** One foot planted and the other permanently airborne is that term's global optimum, so the policy learned single-leg support. Three reward rounds missed it; the diagnostic script found it in one. |
-| **W04** · DR + M1 gate | Domain randomisation, observation history, hardware-spec actuators, command curriculum, symmetry augmentation; head not actuated → **24-dim action / 425-dim observation**. Final run `2026-08-19_11-03-32_week04_nohead`. **M1 passed** — PG-1 worst 0.037 m/s against a 0.15 threshold. | A config *dump* is weaker than a spec: it records what happened without checking the code still produces it. `scripts/verify_repro.py` turns the dump into a contract the repo is tested against. |
-| **W05** · ONNX → TensorRT on the Orin | Engine builder, parity checker, C++/ROS 2 runner, running on the robot's own Orin NX. **FR-Q1 passed on target hardware: `max_abs = 1.335e-05`** against a 1e-3 gate; 50 Hz closed loop, `failures=0`, inference 2.45% of the control budget. | Numerics held across **three simultaneously different dimensions** — Turing→Ampere, TensorRT 10.7→8.5.2, ROS 2 humble→foxy — which is far stronger evidence than a dev-box pass. Separately, pinning the clocks tightened the latency tail **11x**, so any unpinned timing number is a lottery. |
+| **W04** · DR + M1 gate | Domain randomisation, observation history, hardware-spec actuators, command curriculum, symmetry augmentation; head not actuated → **24-dim action / 425-dim observation**. Final run `2026-08-19_11-03-32_week04_nohead`. **M1 passed** — speed-tracking error (PG-1) worst 0.037 m/s against a 0.15 threshold. | A config *dump* is weaker than a spec: it records what happened without checking the code still produces it. `scripts/verify_repro.py` turns the dump into a contract the repo is tested against. |
+| **W05** · ONNX → TensorRT on the Orin | Engine builder, parity checker, C++/ROS 2 runner, running on the robot's own Orin NX. **Numerical parity with PyTorch (FR-Q1) passed on target hardware: `max_abs = 1.335e-05`** against a 1e-3 gate; 50 Hz closed loop, `failures=0`, inference 2.45% of the control budget. | Numerics held across **three simultaneously different dimensions** — Turing→Ampere, TensorRT 10.7→8.5.2, ROS 2 humble→foxy — which is far stronger evidence than a dev-box pass. Separately, pinning the clocks tightened the latency tail **11x**, so any unpinned timing number is a lottery. |
 | **W06** · C++/ROS 2 node + hanging dry run | Hardware bridge, watchdog, fault injection, 7/7 exit criteria. The robot walks under protection. | Two defects that produced **no error anywhere**: (1) **`--fp32` was never fp32** — TensorRT enables `kTF32` by default, rounding GEMM inputs to a 10-bit mantissa (FP16's width), and because the flag only *permits* TF32 the choice is made by build-time kernel timing, so the same command passed once at 1.144e-05 and failed later at 1.095e-02 on the same machine and ONNX. (2) **PD gains are per joint**, six groups, not one scalar — an export omission left the legs undamped and the head vibrating. |
 | **W07** · walking on the real robot | Walking in developer mode with push recovery. Setpoint-lag instrumentation in the bridge, stance attribution tooling. | **Developer mode is a second writer problem.** Without switching the handheld first, the factory motion service keeps writing `rt/lowcmd` at 500 Hz against us; the symptoms — torso sway, joint grinding, tremor, stance not held — all look exactly like a sim2real gap, and cost a full session. Two measurements then *cancelled* planned work: setpoint lag is **1.3 ms = 0.065 control steps** against a trained range of {0,1} steps, so no delay compensation; and **FP16 buys nothing** (1.717e-05, FP32's order, and 171 µs, not faster) because at batch 1 this 90k-parameter MLP is kernel-launch bound and the builder keeps FP32 kernels. Narrow stance was attributed to the hardware side with saturation ruled out arithmetically — 6.45 N·m against a 60 N·m rating, 10.8%. |
 
@@ -200,19 +239,19 @@ independent measurements:
    needs several real walking segments, which did not exist when the decision
    was made.
 
-So FR-Q3 is recorded as *waived with evidence* and FR-Q4 as *satisfied at two
-precisions*. A related finding kept from the same week: the plan's closed-loop
+So INT8 (FR-Q3) is recorded as *waived with evidence*, and the precision comparison
+(FR-Q4) as *satisfied at two precisions*. A related finding kept from the same week: the plan's closed-loop
 gate was **not executable as literally written**, because a TensorRT plan is not
 portable — the engine exists only on the Orin and the simulator only on the dev
 box.
 
-M3 keeps FR-R2's methodology — one controlled, physically real perturbation,
+M3 keeps the headline experiment's (FR-R2's) methodology — one controlled, physically real perturbation,
 swept in simulation and spot-checked on the robot — and changes the knob to
 **`kp_scale`**, the actuator-gain error. That knob is already a launch argument
 on the robot, it is one of the five domain-randomisation items, and unlike INT8
 it actually moves the metrics. Because the same knob sweeps on both sides, one
-figure settles FR-R2/PG-5 (the curve) and FR-R4/PG-6 (the offset between the
-curve and the real points) at once.
+figure settles the robustness experiment (the curve; FR-R2, PG-5) and the sim2real gap
+(the offset between the curve and the real points; FR-R4, PG-6) at once.
 
 ## Reproducing
 
@@ -240,7 +279,7 @@ output (each script prints `[ok]` lines or writes its report), not the exit code
 | unit tests: command layer, policy packaging, model checksums | none | `./run_tests.sh` |
 | stage A figure, from the committed data | none (matplotlib) | `python3 scripts/plot_gain_sweep.py --sim docs/stageA_kp_sweep_sim.json --real docs/stageA_kp_sweep_real.json --out docs/stageA_kp_sweep.png` |
 | training config still matches the deployed run | GPU | `~/IsaacLab/isaaclab.sh -p scripts/verify_repro.py --headless --run 2026-08-19_11-03-32_week04_nohead` |
-| PG-1 tracking table | GPU | `~/IsaacLab/isaaclab.sh -p scripts/eval_baseline.py --headless --num_envs 64 --checkpoint models/week04_nohead/model_2999.pt` |
+| speed-tracking table (PG-1) | GPU | `~/IsaacLab/isaaclab.sh -p scripts/eval_baseline.py --headless --num_envs 64 --checkpoint models/week04_nohead/model_2999.pt` |
 | simulated half of the `kp_scale` sweep | GPU (~3 min) | `~/IsaacLab/isaaclab.sh -p scripts/sweep_gain_robustness.py --headless` |
 | simulation clip for the demo | GPU | `~/IsaacLab/isaaclab.sh -p scripts/record_demo_sim.py --headless --out outputs/demo/sim_sequence.mp4` |
 | demo video | none (ffmpeg) | `python3 scripts/make_demo_video.py --out ... --clip ... --figure docs/stageA_kp_sweep_wide.png` (see its docstring) |
@@ -259,7 +298,7 @@ Isaac Lab 2.1.0 + Isaac Sim 4.5.0 + torch 2.5.1+cu118, conda env `env_isaaclab`.
 All scripts run through `~/IsaacLab/isaaclab.sh -p ...` from this directory (the
 project root) — see each script's docstring/header for the exact invocation.
 
-## Reproducing a training run (FR-T6)
+## Reproducing a training run
 
 Everything needed to reproduce a run is pinned: the seed is set explicitly in
 `tasks/r1_flat/agents/rsl_rl_ppo_cfg.py` (not inherited from an rsl_rl default),
@@ -306,7 +345,7 @@ conda activate env_isaaclab
 # watch it
 tensorboard --logdir logs/rsl_rl/r1_flat
 
-# evaluate: PG-1 tracking table, then per-foot gait statistics
+# evaluate: speed-tracking table (PG-1), then per-foot gait statistics
 ~/IsaacLab/isaaclab.sh -p scripts/eval_baseline.py --headless --num_envs 64 \
     --checkpoint logs/rsl_rl/r1_flat/<run_id>/model_2999.pt
 ~/IsaacLab/isaaclab.sh -p scripts/diagnose_gait.py --headless --num_envs 32 \

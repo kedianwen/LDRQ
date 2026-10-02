@@ -1,4 +1,4 @@
-# PG-2 evidence: continuous walking without the gantry
+# Gate PG-2 (60 s of continuous walking on the real robot): the evidence, without the gantry
 
 **Recorded 2026-09-29** on the robot, `kp_scale = 1.0` (the trained gains), developer mode,
 FP32 TensorRT engine on the onboard Orin NX. Command: `ros2 topic pub -r 10

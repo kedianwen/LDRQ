@@ -178,7 +178,7 @@ exposed two more:**
 
 **Turning, measured on the real robot (2026-09-29).**
 - **While walking:** untethered, vx 0.1 with a 0.15 rad/s turn command did not turn in 80 s
-  (the PG-2 run). The simulator follows the same command at 1.03.
+  (the 60 s untethered run that met gate PG-2). The simulator follows the same command at 1.03.
 - **On the spot:** measured with `deploy/tools/probe_cpp/turn_response.py`, gantry attached but slack, at
   kp 1.0, 1.2 and 1.3 ([docs/stageB_turn_response.md](../docs/stageB_turn_response.md)).
   Every rate from 0.15 to 0.5 turns at about 0.8 of the command. 6 of 24 segments had a

@@ -158,8 +158,9 @@ cover the extra reformat layers and duplicated weights.
 **So INT8 was cut on 2026-09-26** rather than pursued: it cannot buy time, there
 is no evidence it buys space, and a defensible calibration set needs several real
 walking segments that do not exist yet (the observation is five stacked frames
-with 80% overlap, so 60 s of single-speed walking is one operating point). FR-Q3
-is waived with evidence; FR-Q4 is satisfied at two precisions. M3's controlled
+with 80% overlap, so 60 s of single-speed walking is one operating point). The INT8
+requirement (FR-Q3) is waived with evidence; the precision comparison (FR-Q4) is
+satisfied at two precisions. The robustness milestone's (M3's) controlled
 perturbation is `kp_scale` — the actuator-gain error, already a launch argument
 on the bridge — instead of numeric precision. See the repo README,
 [`docs/int8_waiver.md`](../docs/int8_waiver.md) and
