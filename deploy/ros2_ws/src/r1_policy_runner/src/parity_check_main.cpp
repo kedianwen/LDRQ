@@ -184,7 +184,7 @@ void Usage(const char * argv0)
     << "                       --per-dim; the hard no-regression gate is the\n"
     << "                       closed-loop metric in sim, not this number.\n"
     << "  --per-dim            per-action-dimension error table. The question it\n"
-    << "                       answers is whether quantisation error is spread over\n"
+    << "                       answers is whether quantization error is spread over\n"
     << "                       all 24 actions or piled onto a few joints -- those\n"
     << "                       have very different consequences on a biped.\n"
     << "  --names <tsv>        tools/probe_cpp/joints.tsv, to label the table with\n"
@@ -292,7 +292,7 @@ int main(int argc, char ** argv)
     std::cout
       << "\nMODE: engine vs engine. The reference is the BASELINE PLAN, not the\n"
       << "trained policy, so this is not a parity gate and there is no pass line.\n"
-      << "A non-zero difference is the expected result of quantisation. What is\n"
+      << "A non-zero difference is the expected result of quantization. What is\n"
       << "being reported is its size and its shape.\n";
   }
 
@@ -426,7 +426,7 @@ int main(int argc, char ** argv)
       << "\nIf this is an INT8 plan: an INT8 engine is NOT expected to pass a 1e-3\n"
       << "gate against the trained policy, and forcing the tolerance up until it\n"
       << "does would certify nothing. Compare it against the FP16 engine with\n"
-      << "--baseline instead, and gate on closed-loop behaviour.\n";
+      << "--baseline instead, and gate on closed-loop behavior.\n";
   }
   return pass ? 0 : 1;
 }

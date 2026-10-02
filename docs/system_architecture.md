@@ -122,7 +122,7 @@ The Orin NX has one GPU. The policy's TensorRT engine and the model share it.
 - **While the model decodes, the policy waits for the GPU.** Its inference goes from
   0.46 ms to 3.5 ms at p50. It has a steady ceiling of about 5.0 ms, which looks like the
   GPU's time slice.
-- **Against plan 3.6's targets** (inference p99 ≤ 2 ms, lag p95 ≤ idle + 1 ms), the GPU
+- **Against the targets the stage C plan set in advance (its item 3.6, "plan 3.6")** (inference p99 ≤ 2 ms, lag p95 ≤ idle + 1 ms), the GPU
   placement misses both. Four CPU threads meet both: 542 µs and 0.9 ms.
 - **Against the limits the control loop actually has, the GPU is inside them:**
   - obs 50 Hz, no DEGRADED, no failed inference;

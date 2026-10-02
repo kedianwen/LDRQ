@@ -1,34 +1,126 @@
 # scripts/
 
-Tools that operate on `assets/r1/` and `tasks/r1_flat/`. All are run through
-Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
+Command-line tools for the simulation side: building and inspecting the robot model,
+training and evaluating the policy, the simulated half of the robustness sweep, the
+figures, and a few repository checks.
+
+## How to run them
+
+From the **repository root**, not from inside `scripts/`. Scripts that start Isaac Sim go
+through Isaac Lab's launcher; the others are plain Python:
 
 ```bash
-~/IsaacLab/isaaclab.sh -p scripts/<name>.py [args]
+~/IsaacLab/isaaclab.sh -p scripts/<name>.py --headless [args]   # Isaac Sim scripts
+python3 scripts/<name>.py [args]                                # "plain python" below
 ./scripts/<name>.sh [args]
 ```
 
-| Script | What it does | Output |
-|---|---|---|
-| `convert_r1_urdf.py` | Converts `assets/r1/R1.urdf` → `assets/r1/usd/R1.usd` via Isaac Lab's `UrdfConverter`. Run once, or whenever the URDF changes. | `assets/r1/usd/` (gitignored build artifact) |
-| `inspect_r1.py` | Spawns R1 from `R1_CFG`, holds the default pose under PD for `--settle-steps` (default 5500 ≈ 11s at dt=0.002), then reports per-joint limits/drive gains and a mass sanity check. Also saves a standing screenshot. `--trace-every N` prints height/roll/pitch periodically (0 to disable) — this is what diagnosed the Week02 standing-collapse issue below. Covers both Week01's asset-verification deliverable and Week02's ≥10s standing check. | `docs/joint_check.md`, `docs/r1_standing.png` |
-| `random_agent_r1.py` | Our equivalent of Isaac Lab's own `scripts/environments/random_agent.py` — random actions against `Isaac-Velocity-Flat-R1-v0` for `--steps` steps, to confirm the task registers and steps without crashing. We can't use the official script directly: it only imports `isaaclab_tasks`, so it has no way to know about `tasks/r1_flat` living outside Isaac Lab. Week02's task-skeleton deliverable. | stdout only |
-| `train_r1.py` | Our equivalent of Isaac Lab's own `scripts/reinforcement_learning/rsl_rl/train.py` — same reason we can't use the official script directly (it only imports `isaaclab_tasks`). Trains `Isaac-Velocity-Flat-R1-v0` with rsl_rl PPO, asymmetric AC (auto-detected from the env's `critic` observation group — see `tasks/r1_flat/agents/rsl_rl_ppo_cfg.py`). Week03's first-training deliverable. Supports checkpoint-resume (`--resume --load_run <run_id> --checkpoint <name>`) to pause training, inspect the gait with `play_r1.py`, then continue toward the same target — see the module docstring for the exact workflow and the gotcha below. | `logs/rsl_rl/r1_flat/<run_id>/` (gitignored — checkpoints + tensorboard events) |
-| `play_r1.py` | Our equivalent of Isaac Lab's own `scripts/reinforcement_learning/rsl_rl/play.py` (same external-task-package reason). Loads a checkpoint and steps `Isaac-Velocity-Flat-R1-Play-v0` with it for visual/recorded verification. Headless has no GUI, so pass `--video` or it spins forever. Week03 step 4 (deferred as of the first training run — see `experiments/`). | `logs/rsl_rl/r1_flat/<run_id>/videos/play/` when `--video` is passed; also exports `policy.pt`/`policy.onnx` next to the checkpoint |
-| `diagnose_gait.py` | Rolls out a checkpoint (no rendering) and measures **per-foot** gait statistics: swing count, mean swing duration, **air-time fraction**, plus each foot's dominant stepping frequency and the left/right phase offset. Written after three reward-shaping rounds were misjudged from tensorboard values and sampled video frames — air-time fraction (~0.4-0.5 per foot for a real walk) is the number that actually distinguishes walking from a one-legged hop. Use this as the pass/fail check after any gait-related training run. | stdout + `logs/rsl_rl/r1_flat/<run_id>/gait_diagnosis.txt` |
-| `eval_baseline.py` | Rolls out a checkpoint at a grid of *fixed* commanded forward speeds and reports per speed: linear-velocity tracking error (**the PG-1 acceptance number**: ≤ 0.15 m/s over 0.5–1.0 m/s), falls, energy, action smoothness. Pins commands by collapsing the command term's ranges to a point value rather than overwriting `vel_command_b` each step, so the term's own resampling can't fight it. `--friction` / `--push_vel` turn it into a stress test, which is how the with-DR vs without-DR comparison is produced. Complementary to `diagnose_gait.py`: this says whether the robot *goes the commanded speed*, that one says whether it *walks* while doing so. | stdout + `logs/rsl_rl/r1_flat/<run_id>/baseline[_tag].md` |
-| `archive_run.py [run_id]` | Copies a training run's config + final tensorboard metrics into `experiments/` for ablation comparisons across weeks. Doesn't need Isaac Sim — run with plain `python`, not `isaaclab.sh`. See `experiments/README.md`. | `experiments/<run_id>/`, `experiments/runs.md` |
-| `verify_repro.py --run <run_id>` | Rebuilds the env/agent config from current code and diffs it field by field against a run's archived `params/*.yaml`, turning that dump from a record into a contract the repo is tested against (requirement FR-T6, exact reproducibility of a training run). Exits non-zero on drift. Values the scene resolves at construction (`{ENV_REGEX_NS}`, terrain env count/spacing) are normalised rather than ignored, so every reported difference is real; invocation-dependent fields are listed separately. Sanity-check it against a superseded run — `week04_hwspec` reports exactly the two fields the head removal changed. | stdout + `experiments/<run_id>/repro_check.txt` |
-| `plot_m1_figures.py` | Renders the figures for the training milestone's (M1's) review from data already on disk — the baseline reports `eval_baseline.py` wrote and the tensorboard scalars the runs logged — so the figures can't drift from the numbers they claim to show. Plain `python`, no Isaac Sim. Stitches `week04_dr`'s two event files (it was trained then resumed) and drops the first 25 post-resume iterations, where rsl_rl's reward buffer is refilling and reports a dip that isn't real. | `docs/m1_dr_robustness.png`, `docs/m1_training_curves.png` |
-| `sweep_gain_robustness.py` | The simulated half of stage A's `kp_scale` sweep: all gains in one rollout (per-env actuator stiffness), each env driving its own `mission_ctl` Executor with the exact command string the robot walked, scored over the commanded window with the same stability definition. Refuses to run unless the policy reproduces the deployed parity fixture. | `outputs/gain_sweep/<date>/results.json` + `sweep_log.txt` |
-| `plot_gain_sweep.py` | Stage A headline figure: sim curve and real points on one `kp_scale` axis, one metric per panel. Imports `gain_sweep_real.py`'s reduction, so it cannot disagree with `--collect`. Plain `/usr/bin/python3` (matplotlib), no Isaac Sim. | `docs/stageA_kp_sweep.png` |
-| `record_demo_sim.py` | Films one R1 walking a `mission_ctl` script (default: the stage A sweep sequence) with a follow camera — the simulation segment of the demo. | an `.mp4` at `--out` |
-| `make_demo_video.py` | Assembles the demo: title card, captioned clips (audio dropped), the stage A figure, a closing card. Plain python + matplotlib; uses any ffmpeg, including the one inside env_isaaclab's `imageio_ffmpeg`. | an `.mp4` at `--out` |
-| `check_doc_links.py` | Checks every relative link and `#anchor` in the repository's Markdown (GitHub's anchor rules). Plain python, standard library; part of `../run_tests.sh` and CI. | stdout; exit 1 on a broken link |
-| `throughput_sweep.sh` | Sweeps `num_envs` on the official `Isaac-Velocity-Flat-H1-v0` task from 64 up to 16384, recording steady-state fps and peak GPU memory per level. This is Week01's throughput baseline (risk item RK-7: can this GPU train fast enough?) — run *before* touching the R1 task, not on it. | `docs/throughput_sweep.md` |
-| `throughput_sweep_extend.sh <N> [<N> ...]` | Continues the sweep at specific `num_envs` levels without re-running the ones already done — used to push up to the actual OOM ceiling. Appends to the same report. | `docs/throughput_sweep.md` |
+Every script documents its arguments in its module docstring (`--help` works too).
 
-## Known gotchas (already worked around in the code, documented here so nobody re-discovers them the hard way)
+## The scripts
+
+| script | what it is for | writes |
+|---|---|---|
+| **robot model** | | |
+| `convert_r1_urdf.py` | build the USD from `assets/r1/R1.urdf`; run once after cloning | `assets/r1/usd/` (not tracked) |
+| `inspect_r1.py` | joint limits, gains and masses as simulated, and a passive standing check | `docs/joint_check.md` |
+| `random_agent_r1.py` | smoke test: the task registers and steps with random actions | stdout |
+| **training and evaluation** | | |
+| `train_r1.py` | train the policy with rsl_rl PPO | `logs/rsl_rl/r1_flat/<run_id>/` (not tracked) |
+| `play_r1.py` | replay a checkpoint, record a video, export TorchScript and ONNX | `<run>/videos/`, `<run>/exported/` |
+| `eval_baseline.py` | speed-tracking error, falls and energy at fixed commanded speeds (the PG-1 number) | `<run>/baseline[_tag].md` |
+| `diagnose_gait.py` | per-foot gait statistics: does it actually walk? | `<run>/gait_diagnosis.txt` |
+| `archive_run.py` | copy a run's config and final metrics into `experiments/` (plain python) | `experiments/<run_id>/` |
+| `verify_repro.py` | check that current code still produces a run's exact config | `experiments/<run_id>/repro_check.txt` |
+| **robustness sweep and figures** | | |
+| `sweep_gain_robustness.py` | simulated half of the `kp_scale` sweep | `outputs/gain_sweep/<date>/` |
+| `plot_gain_sweep.py` | the stage A figure: sim curve and real points on one axis (plain python) | `docs/stageA_kp_sweep.png` |
+| `plot_m1_figures.py` | the training-milestone figures (plain python) | `docs/m1_*.png` |
+| `record_demo_sim.py` | film the robot walking a `mission_ctl` script in simulation | an `.mp4` |
+| `make_demo_video.py` | assemble the demo video (plain python + ffmpeg) | an `.mp4` |
+| **checks** | | |
+| `check_doc_links.py` | every relative link and anchor in the Markdown resolves (plain python; in `run_tests.sh`) | stdout |
+| `throughput_sweep.sh`, `throughput_sweep_extend.sh` | how many parallel envs this GPU can train with, and how fast | `docs/throughput_sweep.md` |
+
+## Details
+
+### Why there are local copies of Isaac Lab's scripts
+
+`random_agent_r1.py`, `train_r1.py` and `play_r1.py` mirror Isaac Lab's own
+`random_agent.py`, `train.py` and `play.py`. The originals only `import isaaclab_tasks`,
+so they cannot see a task package that lives outside Isaac Lab, such as `tasks/r1_flat/`.
+The copies register it first and otherwise behave the same.
+
+### `train_r1.py`
+
+- Asymmetric actor-critic is picked up automatically from the task's `critic`
+  observation group (`tasks/r1_flat/agents/rsl_rl_ppo_cfg.py`).
+- `--resume --load_run <run_id> --checkpoint <name>` continues a run, so you can stop,
+  inspect the gait with `play_r1.py`, and carry on.
+- `--max_iterations` is the **absolute** target even with `--resume`; upstream treats it
+  as additional iterations (see *Known pitfalls*).
+
+### `play_r1.py`
+
+Headless mode has no window, so pass `--video`, or it runs forever. It also exports
+`policy.pt` and `policy.onnx` next to the checkpoint; that is where `models/` came from.
+
+### `eval_baseline.py` and `diagnose_gait.py`
+
+The two answer different questions and both are needed after a training run.
+
+- `eval_baseline.py`: **does the robot go the commanded speed?** It pins each command by
+  collapsing the command range to a point, so the command term's own resampling cannot
+  fight it. `--friction` and `--push_vel` turn it into a stress test.
+- `diagnose_gait.py`: **does it walk while doing so?** It reports per-foot swing count,
+  swing duration, air-time fraction (about 0.4–0.5 per foot for a real walk), each
+  foot's stepping frequency and the left/right phase offset. It was written after
+  reward changes were misjudged three times from tensorboard curves and video frames.
+
+### `verify_repro.py`
+
+Rebuilds the environment and agent config from the current code and diffs it field by
+field against a run's archived `params/*.yaml`, turning that dump into a contract. It
+exits non-zero on drift. Values the scene resolves at construction time are normalized
+rather than ignored, and fields that vary per invocation (env count, device) are listed
+separately. Try it on a superseded run: `week04_hwspec` reports exactly the two fields
+the head removal changed.
+
+### `inspect_r1.py`
+
+Holds the default pose under joint PD at the training task's physics step (`--dt`,
+default 0.005 s) for `--settle-seconds` (default 11), then writes the joint table.
+`--trace-every N` prints height and tilt as it goes. With the hardware gains the robot
+does **not** stand passively. That is expected: the policy balances it actively. The
+standing screenshot `docs/r1_standing.png` comes from W02's much stiffer gains and is
+only overwritten when the robot stands.
+
+### `sweep_gain_robustness.py` and `plot_gain_sweep.py`
+
+The sweep runs every gain in one rollout, with per-env actuator stiffness. Each env drives
+its own `mission_ctl` executor with the exact command string the robot walked, and is
+scored over the commanded window with the same stability definition as the robot. It
+refuses to run unless the policy reproduces the deployed parity fixture.
+`plot_gain_sweep.py` imports the robot-side reduction from
+`deploy/tools/probe_cpp/gain_sweep_real.py`, so the figure cannot disagree with it.
+
+### `plot_m1_figures.py`
+
+Builds the figures from data already on disk: the `eval_baseline.py` reports and the
+runs' tensorboard scalars. Figures cannot drift from the numbers. It stitches
+`week04_dr`'s two event files (trained, then resumed) and drops the first 25
+post-resume iterations, where rsl_rl's reward buffer refills and shows a dip that is not
+real.
+
+### `throughput_sweep*.sh`
+
+Run on Isaac Lab's own `Isaac-Velocity-Flat-H1-v0` task, before the R1 task existed:
+`num_envs` from 64 to 16384, steady-state fps and peak GPU memory per level;
+`throughput_sweep_extend.sh <N>...` adds levels up to the out-of-memory point.
+
+## Known pitfalls
+
+All are already worked around in the code; they are written down so nobody rediscovers them the hard way.
 
 - **Don't `set -u` in a script that calls `./isaaclab.sh`.** Bash exports shell
   options like `nounset` to child scripts via `SHELLOPTS`, and IsaacLab's own
@@ -69,7 +161,7 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   With one foot permanently planted and the other permanently in the air,
   `single_stance` is always true and both feet's `in_mode_time` grow without
   bound, so the term sits clamped at its `threshold` maximum forever — never
-  taking a step is its global optimum. Three Week03 reward rounds were spent
+  taking a step is its global optimum. Three W03 reward rounds were spent
   patching around this before it was found (`experiments/*/NOTES.md`). If you
   use this term, pair it with a touchdown gate (`compute_first_contact`) or a
   max-air-time penalty, and **never read a rising `feet_air_time` as evidence
@@ -87,11 +179,11 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   through W04's first run; once the gains were corrected to the hardware's
   100/40 (next entry) the constraint went away, and the deployed policy trained
   at `dt=0.005` / `decimation=4` (`tasks/r1_flat/flat_env_cfg.py`).
-- **Check the robot's own spec before inventing actuator numbers.** Week02 set
+- **Check the robot's own spec before inventing actuator numbers.** W02 set
   R1's leg effort limits to 150 N·m, chosen to pass a "hold the pose under pure
   joint PD for 10s" standing test. `R1.urdf` declares 60 (hip/knee) and 50
   (ankle), and Unitree's official RL config agrees exactly — so the sim robot
-  was 2.5-3x stronger than the hardware, and the Week04 policy spent 11.6% of
+  was 2.5-3x stronger than the hardware, and the W04 policy spent 11.6% of
   its time commanding ankle torques no real R1 could produce. Two lessons:
   (1) the passive-standing criterion is wrong for an RL task — the policy
   re-targets every joint at 50Hz and balances *actively*, so it never needs the
@@ -101,7 +193,7 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   ankles, per-group action scale `0.25*effort/stiffness`), tracking error,
   robustness, energy and gait symmetry all improved *simultaneously*.
 - **R1's leg gains only stand up under an *implicit* actuator.** The corollary
-  of the entry above, found while adding Week04's control-delay randomization:
+  of the entry above, found while adding W04's control-delay randomization:
   swapping the legs onto `DelayedPDActuatorCfg` (an *explicit* actuator —
   PD computed in Python, applied as an effort) made R1 collapse in 1.5s, and it
   collapsed identically with the delay set to zero, so the actuator model was
@@ -118,8 +210,18 @@ Isaac Lab's launcher **from the project root** (not from inside `scripts/`):
   output shape, and that happens *before* `load_managers` applies `mode="startup"`
   events. So a term that caches an expensive lookup on first use will cache the
   **pre-randomization** value and then return a constant forever. This bit the
-  critic's ground-friction observation in Week04: all envs read exactly 1.000
+  critic's ground-friction observation in W04: all envs read exactly 1.000
   (the USD default) while the actual friction spanned 0.6-1.2. Fix is to drop
   the cache once on the first `reset()`, which happens after startup. More
   generally: after wiring up any domain randomization, **measure that it varies
   across envs** before spending a training run on it.
+
+## History
+
+- W01: `convert_r1_urdf.py`, `inspect_r1.py`, the throughput sweep (risk item RK-7: is
+  one RTX 2080 Ti fast enough to train on?).
+- W02: `random_agent_r1.py` (the task skeleton); `inspect_r1.py`'s standing check.
+- W03: `train_r1.py`, `play_r1.py`, `diagnose_gait.py`.
+- W04: `eval_baseline.py`, `archive_run.py`, `verify_repro.py`, `plot_m1_figures.py`.
+- Stage A: `sweep_gain_robustness.py`, `plot_gain_sweep.py`, the demo scripts.
+- W01–W08 and stages A–D are explained in [docs/project_history.md](../docs/project_history.md).

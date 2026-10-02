@@ -1,7 +1,7 @@
-# INT8 quantisation (requirement FR-Q3): waived with evidence · precision comparison (FR-Q4): satisfied at two precisions
+# INT8 quantization (requirement FR-Q3): waived with evidence · precision comparison (FR-Q4): satisfied at two precisions
 
-Decided 2026-09-26. INT8 was planned for W08 as post-training quantisation with a
-calibration set, a behavioural acceptance, and a FP32/FP16/INT8 benchmark. It was cut
+Decided 2026-09-26. INT8 was planned for W08 as post-training quantization with a
+calibration set, a behavioral acceptance, and a FP32/FP16/INT8 benchmark. It was cut
 because three independent measurements say it cannot pay for itself **on this model** —
 not because it was hard. Numbers below are from the robot's Orin NX (TensorRT 8.5.2.2,
 clocks locked) unless marked otherwise.
@@ -23,7 +23,7 @@ FP16's error stays at FP32's order (true FP16 arithmetic would land near 1e-3) b
 `kFP16`/`kINT8` *permit* reduced precision rather than require it: TensorRT picks each
 layer's kernel by timing it at build, and for this network it keeps FP32 kernels. In the
 real 50 Hz loop the whole inference is ~455 µs p50 against a 20,000 µs budget (2.3 %).
-There is no latency problem for quantisation to solve.
+There is no latency problem for quantization to solve.
 
 ## 2. It cannot buy space
 
@@ -42,7 +42,7 @@ The observation stacks five frames, and neighbouring stacks share 80 % of their 
 A 60 s single-speed straight walk is 3,000 samples but one operating point and ~72 gait
 cycles. A calibration set that represents the policy's input distribution would need
 real walking across the vx × wz command grid — many sessions on the robot for a
-quantisation that, by §1 and §2, returns nothing.
+quantization that, by §1 and §2, returns nothing.
 
 ## What is recorded
 

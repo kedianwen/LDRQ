@@ -18,7 +18,7 @@ namespace r1_policy_runner
 namespace
 {
 
-// TensorRT 10 removed the binding-index API in favour of named tensors, and
+// TensorRT 10 removed the binding-index API in favor of named tensors, and
 // replaced enqueueV2 with enqueueV3. JetPack 6.0 still carries TensorRT 8.6,
 // so both paths stay compiled-in until the R1's JetPack version is confirmed.
 #if NV_TENSORRT_MAJOR >= 10
@@ -118,7 +118,7 @@ struct CalibratorHandle
 /// Templated on the algorithm because the two available ones make OPPOSITE
 /// trades and this policy has a reason to care about both:
 ///
-///   Entropy2  minimises information loss over the whole histogram, so a single
+///   Entropy2  minimizes information loss over the whole histogram, so a single
 ///             outlier frame does not cost resolution everywhere else. A 60 s
 ///             robot recording will contain outlier frames.
 ///   MinMax    pins the scale to the most extreme activation seen, so nothing
@@ -258,7 +258,7 @@ bool BuildEngineFromOnnx(
     };
 
   // kINFO is where TensorRT prints the per-tensor dynamic ranges the calibrator
-  // produced. That is the only way to see WHICH layers the quantisation is tight
+  // produced. That is the only way to see WHICH layers the quantization is tight
   // on -- and the W08 plan specifically wants a look at the layers where the
   // FP16 build reported subnormal weights.
   TrtLogger logger{opt.verbose ? nvinfer1::ILogger::Severity::kINFO
@@ -350,7 +350,7 @@ bool BuildEngineFromOnnx(
       // this path on a dev box. It is only wrong to report its numbers.
       std::cout
         << "       ^ R1FX inputs are Gaussian noise, not robot observations. INT8\n"
-        << "         quantises ACTIVATION ranges, and noise drives activations the\n"
+        << "         quantizes ACTIVATION ranges, and noise drives activations the\n"
         << "         policy never reaches -- so this engine is a build smoke test,\n"
         << "         NOT the subject of the INT8 acceptance report.\n";
     }

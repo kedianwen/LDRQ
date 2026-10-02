@@ -80,7 +80,7 @@ struct BuildOptions
   /// Observation vectors for INT8 calibration: "R1CB" (tools/record_calib_obs.py,
   /// recorded off the running robot) or "R1FX" (the parity fixture, whose inputs
   /// are synthetic Gaussians). Both load; only R1CB is a defensible calibration
-  /// set, because activation ranges are what INT8 quantises and synthetic noise
+  /// set, because activation ranges are what INT8 quantizes and synthetic noise
   /// visits activations the policy never sees. The builder says which it got.
   std::string calib_data;
 
@@ -94,7 +94,7 @@ struct BuildOptions
 
   /// Raise the TensorRT log threshold to kINFO, which is where the per-tensor
   /// dynamic ranges chosen by calibration are printed. Noisy; the only way to
-  /// see which layers the quantisation is tight on.
+  /// see which layers the quantization is tight on.
   bool verbose = false;
 
   /// Where to cache TensorRT's calibration table. If the file exists it is

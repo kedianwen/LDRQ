@@ -19,7 +19,7 @@ ones made for other purposes, like the PG-2 run.
   # on the robot, turning on the spot; a slack gantry may stay attached, but start with
   # the feet under the gantry point -- once the rope pulls, those segments are the rig
   python3 turn_response.py --record
-  # analyse one or more recordings (any walk_metrics json)
+  # analyze one or more recordings (any walk_metrics json)
   python3 turn_response.py --collect ~/orin_commissioning/turn/*.json
 
 Left and right alternate, so the robot ends facing roughly where it started and a
@@ -71,7 +71,7 @@ def build_script(grid, vx=0.0, seg_s=SEG_S, pause_s=PAUSE_S):
                 # an arc: walk and turn together is not a mission_ctl primitive, so
                 # arcs are recorded with ros2 topic pub (see the stage B guide)
                 raise SystemExit("[refuse] --vx > 0 needs an arc primitive; record arcs "
-                                 "with ros2 topic pub and analyse them with --collect")
+                                 "with ros2 topic pub and analyze them with --collect")
             parts.append("turn {} {:g}s@{:g}".format(side, seg_s, wz))
             parts.append("stand {:g}s".format(pause_s))
     return "; ".join(parts)
@@ -226,7 +226,7 @@ def main():
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--plan", action="store_true", help="print the mission script")
     g.add_argument("--record", action="store_true", help="record the response on the robot")
-    g.add_argument("--collect", nargs="+", metavar="JSON", help="analyse recordings")
+    g.add_argument("--collect", nargs="+", metavar="JSON", help="analyze recordings")
     ap.add_argument("--grid", default=",".join(map(str, WZ_GRID)), help="wz values, rad/s")
     ap.add_argument("--seconds", type=float, default=SEG_S, help="per direction per rate")
     ap.add_argument("--pause", type=float, default=PAUSE_S)

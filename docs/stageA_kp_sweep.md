@@ -23,7 +23,7 @@ simulated interval, sits on the real one's lower edge.
 
 ## Where the gap is, metric by metric
 
-- **Leg tracking agrees in shape.** Normalised to each side's own kp = 1.0 point, both fall
+- **Leg tracking agrees in shape.** Normalized to each side's own kp = 1.0 point, both fall
   monotonically with stiffness; they differ by at most 0.11 from 1.0 to 1.5 and by up to 0.24
   below (0.7). The joint-level PD response scales with stiffness roughly as the simulator
   predicts. (In absolute terms the real tracking error is ~20 % larger: 0.091 vs 0.076 rad at 1.0.)

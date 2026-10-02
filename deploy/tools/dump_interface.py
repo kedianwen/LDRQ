@@ -213,7 +213,7 @@ def main():
         off += d * history
     md += [
         "",
-        "No input normalisation: the policy was trained with "
+        "No input normalization: the policy was trained with "
         "`empirical_normalization=false`, so the exported graph is the whole "
         "computation. Feed raw values.",
         "",

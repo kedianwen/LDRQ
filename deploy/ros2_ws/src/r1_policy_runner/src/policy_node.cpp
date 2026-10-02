@@ -12,7 +12,7 @@
 //                                                        default + scale
 //
 // Keeping the 5-frame history inside this node rather than in the publisher is
-// deliberate: the term-major layout the policy expects is an artefact of how it
+// deliberate: the term-major layout the policy expects is an artifact of how it
 // was trained, and every consumer that re-derives it is another chance to get it
 // silently wrong. See obs_assembler.hpp.
 

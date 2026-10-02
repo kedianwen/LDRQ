@@ -1,4 +1,4 @@
-"""The behaviour state machine. Pure Python: the clock and the measurements are
+"""The behavior state machine. Pure Python: the clock and the measurements are
 arguments, so the whole thing is testable without ROS or a robot.
 
 Deliberately NOT in the bridge. The bridge is the only thing that writes

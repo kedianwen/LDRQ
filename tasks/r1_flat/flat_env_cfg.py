@@ -3,11 +3,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""R1 flat-ground velocity-tracking task (Week02 manager-based skeleton).
+"""R1 flat-ground velocity-tracking task (W02 manager-based skeleton).
 
 Adapted from isaaclab_tasks' H1 example
 (isaaclab_tasks/manager_based/locomotion/velocity/config/h1/). Differences
-from that template, per the Week02 plan:
+from that template, per the W02 plan:
 
 - Flat ground only, no rough terrain / height scanner -- not in this
   project's scope (the 12-week plan never trains on rough terrain).
@@ -15,20 +15,20 @@ from that template, per the Week02 plan:
   everything actually available on the deployed R1) and a ``critic`` group
   (adds privileged sim-only state). rsl_rl's vec-env wrapper auto-detects an
   observation group literally named "critic" and feeds it to the value
-  function only -- this *is* the asymmetric actor-critic split Week03's
+  function only -- this *is* the asymmetric actor-critic split W03's
   training will use; nothing else needs to change to turn it on.
 - Termination is height/tilt-based (``root_height_below_minimum`` +
   ``bad_orientation``) rather than torso-contact-based like H1, since R1's
   link names differ from H1's and the plan asks for "base height too low or
   tilt too large" specifically.
-- Rewards (Week03, FR-T3): tracking terms + physical-plausibility penalties
+- Rewards (W03, FR-T3): tracking terms + physical-plausibility penalties
   (tilt, torque, joint limits, foot slide) + upper-body joint_deviation
   penalties (R1 has 14 non-leg DOF with no task of their own yet -- without
   a "stay near default" penalty the policy can exploit arm-flailing for
   balance, which is free in sim but doesn't transfer and fights Week0X's
   future arm-task training). See RewardsCfg docstring for the full rationale.
-- Commands started narrow for Week03's first training (lin_vel_x in [0, 0.5],
-  no turning); since Week04 a curriculum widens them to lin_vel_x [0, 1.0]
+- Commands started narrow for W03's first training (lin_vel_x in [0, 0.5],
+  no turning); since W04 a curriculum widens them to lin_vel_x [0, 1.0]
   and ang_vel_z [-0.5, 0.5]. lin_vel_y stays 0 throughout (see CommandsCfg).
 """
 
@@ -99,12 +99,12 @@ class R1SceneCfg(InteractiveSceneCfg):
 ##
 
 
-# Week04 (FR-T4): frames of proprioception stacked into the actor's observation.
+# W04 (FR-T4): frames of proprioception stacked into the actor's observation.
 # 5 frames at the 50Hz control rate = 100ms of history, enough to span most of a
-# 1.34Hz gait cycle's swing phase (the Week03 policy's measured step frequency).
+# 1.34Hz gait cycle's swing phase (the W03 policy's measured step frequency).
 OBS_HISTORY_LENGTH = 5
 
-# Week04 command curriculum end points. Module-level so the curriculum term, the
+# W04 command curriculum end points. Module-level so the curriculum term, the
 # CommandsCfg defaults and the PLAY variant can't drift apart.
 COMMAND_RANGES_INITIAL = {"lin_vel_x": (0.0, 0.5), "ang_vel_z": (0.0, 0.0)}
 COMMAND_RANGES_FINAL = {"lin_vel_x": (0.0, 1.0), "ang_vel_z": (-0.5, 0.5)}
@@ -114,21 +114,21 @@ COMMAND_RANGES_FINAL = {"lin_vel_x": (0.0, 1.0), "ang_vel_z": (-0.5, 0.5)}
 class CommandsCfg:
     """Velocity command specification.
 
-    Week03 first-training range was straight-line walking only (lin_vel_x in
+    W03 first-training range was straight-line walking only (lin_vel_x in
     [0, 0.5], lin_vel_y and ang_vel_z pinned to 0). heading_command is off
     because with heading on, the commanded ang_vel_z is computed from heading
     error and clamped into ranges.ang_vel_z at runtime -- leaving that range
     at (0, 0) would silently fight the heading controller instead of just
     not commanding turns.
 
-    Week04 must widen this: PG-1 is stated over 0.5-1.0 m/s, and measuring the
-    Week03 policy (scripts/eval_baseline.py) showed exactly the expected
+    W04 must widen this: PG-1 is stated over 0.5-1.0 m/s, and measuring the
+    W03 policy (scripts/eval_baseline.py) showed exactly the expected
     shape -- 0.022 m/s tracking error at 0.5 m/s but 0.236 m/s at 1.0 m/s,
     with zero falls. It isn't unstable up there, it simply never trained
-    there. Turning is enabled too: PG-1 doesn't ask for it, but Week06's real
+    there. Turning is enabled too: PG-1 doesn't ask for it, but W06's real
     deployment does, and adding it later means retraining.
 
-    The ranges here are the curriculum's *starting* values (Week03's, which
+    The ranges here are the curriculum's *starting* values (W03's, which
     already work); CurriculumCfg.command_ranges ramps them to the final
     lin_vel_x (0, 1.0) / ang_vel_z (-0.5, 0.5). lin_vel_y stays pinned at 0 --
     humanoid lateral stepping is much harder than turning and is rarely
@@ -156,7 +156,7 @@ class CommandsCfg:
 class ActionsCfg:
     """Action = scaled joint position offset from R1's default standing pose (assets/r1/r1.py).
 
-    Week04 (FR-T5) adds the fifth domain randomization item here rather than in
+    W04 (FR-T5) adds the fifth domain randomization item here rather than in
     EventCfg: the setpoint reaching the joints lags 0-1 control steps (0-20ms),
     resampled per episode. See DelayedJointPositionAction in tasks/r1_flat/mdp.py
     for why this is not Isaac Lab's DelayedPDActuatorCfg -- short version, that
@@ -193,7 +193,7 @@ class ActionsCfg:
         # Per-group scale, following Unitree's own R1 config, which derives it as
         # 0.25 * effort_limit / stiffness -- i.e. a full-scale action asks for a
         # quarter of the joint's torque budget. A single global 0.5 (what this
-        # used through Week04) is not scale-free: against the old stiffness of
+        # used through W04) is not scale-free: against the old stiffness of
         # 1200 it meant a 0.05 rad action already commanded 60 N*m, so the
         # controller effectively ran saturated. That is the direct cause of the
         # measured ankle p99 pinned at the torque ceiling.
@@ -216,14 +216,14 @@ class ActionsCfg:
 
 @configclass
 class ObservationsCfg:
-    """Two groups, deliberately split now so Week03's asymmetric-AC training needs no rework."""
+    """Two groups, deliberately split now so W03's asymmetric-AC training needs no rework."""
 
     @configclass
     class PolicyCfg(ObsGroup):
         """Pure proprioception: only what's actually measurable on the deployed R1.
         No base linear velocity -- that's not observable without external tracking.
 
-        Week04 (FR-T4) stacks the last OBS_HISTORY_LENGTH frames of every term
+        W04 (FR-T4) stacks the last OBS_HISTORY_LENGTH frames of every term
         here, which is what lets a pure-proprioception actor *infer* the things
         it can't measure (base linear velocity, ground contact, actuator lag)
         from how its own state evolved. That's this project's replacement for a
@@ -242,7 +242,7 @@ class ObservationsCfg:
             self.concatenate_terms = True
             # group-level setting: applies to every term above, 85 -> 425 dims.
             # NOTE the buffer lives in the *env* (ObservationManager's
-            # CircularBuffer), not in the network, so Week05's exported ONNX
+            # CircularBuffer), not in the network, so W05's exported ONNX
             # takes a flat 425-dim input and the C++ node on the robot has to
             # maintain this 5-frame queue itself.
             self.history_length = OBS_HISTORY_LENGTH
@@ -264,7 +264,7 @@ class ObservationsCfg:
         base_incoming_wrench = ObsTerm(
             func=mdp.body_incoming_wrench, params={"asset_cfg": SceneEntityCfg("robot", body_names="pelvis_link")}
         )
-        # Week04: friction now *does* vary per env (EventCfg.physics_material),
+        # W04: friction now *does* vary per env (EventCfg.physics_material),
         # so this became worth observing -- an unobservable friction is reward
         # noise the value function would otherwise have to absorb.
         # asset_cfg must be passed through params, not left to the function's
@@ -289,7 +289,7 @@ class ObservationsCfg:
 
 @configclass
 class EventCfg:
-    """Resets plus Week04's domain randomization (FR-T5).
+    """Resets plus W04's domain randomization (FR-T5).
 
     Five items, exactly the five the plan asks for and no more: friction,
     mass, motor strength, control delay and external pushes. Four of them are
@@ -305,7 +305,7 @@ class EventCfg:
     strength for the whole run, which is the right model anyway: a real motor's
     strength doesn't resample when the robot gets picked up.
 
-    Ranges are deliberately narrow-to-moderate. The Week04 plan's own risk note
+    Ranges are deliberately narrow-to-moderate. The W04 plan's own risk note
     is "DR 开太猛会导致学不动 -> 从窄区间起，逐步放宽" -- this is the starting
     width, to be widened only after a run confirms the gait survives it.
     """
@@ -373,7 +373,7 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Week03 reward set (FR-T3): "tracking is positive, everything else is a
+    """W03 reward set (FR-T3): "tracking is positive, everything else is a
     penalty regularizer", per the plan.
 
     Revision history:
@@ -391,7 +391,7 @@ class RewardsCfg:
     - This revision (`reward_fix`): raised feet_air_time and feet_slide, split
       hip deviation so hip_roll (the "splay" DOF) is penalized much harder
       than hip_yaw (which doesn't cause splay), and added base_height_l2 to
-      anchor posture near Week02's verified standing height instead of letting
+      anchor posture near W02's verified standing height instead of letting
       the policy crouch/widen further for cheap stability. Deliberately did
       NOT raise dof_torques_l2/dof_acc_l2/action_rate_l2 -- those already
       favor the low-effort drag solution, raising them would fight the fix.
@@ -454,7 +454,7 @@ class RewardsCfg:
         itself; ang_vel_xy_l2 only penalizes its rate, so the two are
         complementary, not redundant.
     base_height_l2: new (reward_fix) -- anchors pelvis height near 0.72m (the
-        Week02-verified standing height) so the policy can't trade a lower/
+        W02-verified standing height) so the policy can't trade a lower/
         wider crouch for cheap stability instead of learning to step.
     dof_torques_l2 / dof_acc_l2 / action_rate_l2: energy + smoothness, keeps
         the policy off high-frequency torque exploits that don't transfer.
@@ -575,7 +575,7 @@ class RewardsCfg:
 @configclass
 class TerminationsCfg:
     """"摔倒": base height too low, or tilted too far. The height threshold
-    tracks the default standing pelvis height (0.731m as of the Week04 actuator
+    tracks the default standing pelvis height (0.731m as of the W04 actuator
     correction, see assets/r1/r1.py) at the same ~0.69 ratio the 0.5/0.72 pair
     used, so "fallen" keeps meaning the same posture rather than drifting when
     the nominal pose changes."""
@@ -587,9 +587,9 @@ class TerminationsCfg:
 
 @configclass
 class CurriculumCfg:
-    """Week04 command curriculum.
+    """W04 command curriculum.
 
-    Week03 produced a policy that walks well at 0-0.5 m/s straight ahead.
+    W03 produced a policy that walks well at 0-0.5 m/s straight ahead.
     Opening the full 0-1.0 m/s range plus turning from step 0 throws that head
     start away; ramping in keeps it. ``end_step`` is in *control* steps --
     rsl_rl runs 24 per iteration, so 24000 steps is iteration 1000, i.e. the
@@ -630,8 +630,8 @@ class R1FlatEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # 200Hz physics, 50Hz control -- the Isaac Lab locomotion default.
         #
-        # This was dt=0.002 / decimation=10 (500Hz physics) through Week04, and
-        # that was never really about R1: it was forced by the Week02 leg
+        # This was dt=0.002 / decimation=10 (500Hz physics) through W04, and
+        # that was never really about R1: it was forced by the W02 leg
         # stiffness of 1200 N*m/rad, at which PhysX's implicit drive solver
         # diverged at coarser timesteps. Those gains have since been corrected
         # to the hardware's own 100/40 (assets/r1/r1.py), which removes the
@@ -651,7 +651,7 @@ class R1FlatEnvCfg(ManagerBasedRLEnvCfg):
 class R1FlatEnvCfg_PLAY(R1FlatEnvCfg):
     """Small/deterministic variant for interactive play/verification runs.
 
-    Week04: domain randomization and the command curriculum are switched off
+    W04: domain randomization and the command curriculum are switched off
     here so that play/evaluation runs at *nominal* conditions, with the full
     command range available immediately. Otherwise every measurement would
     carry a random friction/mass/gain draw, and scripts/eval_baseline.py could

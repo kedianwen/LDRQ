@@ -2,7 +2,7 @@
 
 Task: `Isaac-Velocity-Flat-H1-v0`, `--headless`, 40 iterations per level, `num_steps_per_env=24`
 (from `rsl_rl_ppo_cfg.py`). This is the official-task throughput baseline required before
-touching the R1 task, per the Week01 plan.
+touching the R1 task, per the W01 plan.
 
 ## RK-7 answer (the three numbers)
 

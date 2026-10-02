@@ -5,10 +5,10 @@
 
 """Left/right mirror symmetry for R1, for rsl_rl's symmetry augmentation.
 
-Week04 measured the trained policy's feet spending very different fractions of
+W04 measured the trained policy's feet spending very different fractions of
 the cycle in the air (left 0.416, right 0.646) despite stepping in clean
 antiphase. Checking `R1.urdf` ruled out the model as the cause -- all 17
-left/right link pairs match to 0 in mass, all six inertia components and centre
+left/right link pairs match to 0 in mass, all six inertia components and center
 of mass -- so the asymmetry is a learned local optimum, and nothing in the
 reward or the training loop ever asked for a symmetric gait.
 

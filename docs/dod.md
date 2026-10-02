@@ -4,7 +4,7 @@ The project's closing checklist, written at the end of the 12-week plan against 
 project's requirements document. That document and the week plans are not published, so
 each gate (PG-n) and requirement (FR-xn) below is restated in its own row, with the
 evidence that closes it; the ID scheme is explained in the top-level README's
-[*How the project was organised*](../README.md#how-the-project-was-organised). **Status legend:** ✅ met · ⚖️ waived or cut, with evidence ·
+[*How the project was organized*](project_history.md#how-the-project-was-organized). **Status legend:** ✅ met · ⚖️ waived or cut, with evidence ·
 ⏳ met, evidence being archived · ◻ open.
 
 ## Gates
@@ -27,15 +27,15 @@ evidence that closes it; the ID scheme is explained in the top-level README's
 | FR-T2 | the training task (observations, actions, rewards, terminations, events) | ✅ | W02; `tasks/r1_flat/` |
 | FR-T3 | a velocity-tracking reward function that produces a real gait | ✅ | W03; `experiments/README.md` |
 | FR-T4 | a policy that uses only the robot's own sensors, deployable without distillation | ✅ | W04; 5-frame observation history, 425 inputs |
-| FR-T5 | five-item domain randomisation: friction, mass, motor strength, control delay, pushes | ✅ | W04; `tasks/r1_flat/flat_env_cfg.py` `EventCfg` |
+| FR-T5 | five-item domain randomization: friction, mass, motor strength, control delay, pushes | ✅ | W04; `tasks/r1_flat/flat_env_cfg.py` `EventCfg` |
 | FR-T6 | a training run reproducible exactly (seed, every setting in config) | ✅ | `scripts/verify_repro.py` PASS on 2026-09-29 against the deployed run |
 | FR-Q1 | the TensorRT engine on the robot gives the same outputs as PyTorch | ✅ | 1.335e-05 on the Orin |
 | FR-Q2 | inference latency measured on the robot | ✅ | [int8_waiver.md](int8_waiver.md) §1, technical report §2 |
-| FR-Q3 | INT8 post-training quantisation, with a calibration set | ⚖️ waived | [int8_waiver.md](int8_waiver.md) |
+| FR-Q3 | INT8 post-training quantization, with a calibration set | ⚖️ waived | [int8_waiver.md](int8_waiver.md) |
 | FR-Q4 | latency, size and power compared across precisions | ✅ at FP32 / FP16 | [int8_waiver.md](int8_waiver.md) |
 | FR-D* | C++/ROS 2 control node: 50 Hz policy over a 500 Hz motor loop, Unitree SDK, watchdog, fault injection | ✅ | W06 7/7; `deploy/README.md` |
 | FR-R2 | the headline robustness experiment: one controlled, physically real disturbance swept in sim and spot-checked on the robot | ✅ | knob changed from INT8 to `kp_scale`, methodology unchanged |
-| FR-R3 | domain-randomisation ablation: which item buys how much robustness | ⚖️ cut | cut for time (2026-09-26); partly answered for the stiffness item — technical report §6 |
+| FR-R3 | domain-randomization ablation: which item buys how much robustness | ⚖️ cut | cut for time (2026-09-26); partly answered for the stiffness item — technical report §6 |
 | FR-R4 | the sim2real gap in numbers | ✅ | [stageA_kp_sweep.md](stageA_kp_sweep.md) |
 
 ## Deliverables
@@ -44,6 +44,10 @@ evidence that closes it; the ID scheme is explained in the top-level README's
 |---|---|---|
 | technical report | ✅ (Markdown) | [technical_report.md](technical_report.md). No PDF built: this machine has no pandoc/LaTeX |
 | public, reproducible repository | ✅ | this repository; *Reproducing* in the top-level README |
+| command layer on the robot (time / angle / speed) | ✅ | `mission_ctl/`, [stageB_mission_runs.md](stageB_mission_runs.md) |
+| English instructions through a local model | ✅ | `mission_ctl ask`, `llm/`, [stageC_nl_eval.md](stageC_nl_eval.md) |
+| one-command policy install, with refusals | ✅ accepted on the robot 2026-10-02 | `policy_pack/`, [stageD_policy_swap.md](stageD_policy_swap.md) |
+| robot-side release | ✅ v1.1.0 | [GitHub release](https://github.com/kedianwen/LDRQ/releases/tag/v1.1.0), [release/README.md](../release/README.md) |
 | demo video | ◻ one clip missing | `scripts/record_demo_sim.py` + `scripts/make_demo_video.py` assemble title → simulation (same sequence as the robot) → robot walking and recovering from pushes (`w07_walk_push_recovery.mp4`) → stage A figure → summary. The draft exists; the final cut adds the untethered clip, recorded last |
 
 ## Clean-copy check (PG-7)
@@ -60,7 +64,7 @@ not copied here.
   untracked `deploy/artifacts/`); `make_bundle.py` now falls back to `models/`
 - stage A figure redrawn from the committed JSON: byte-identical to `docs/stageA_kp_sweep.png`
 - the GPU path: the simulated sweep **failed before this check** — the robot's USD is a
-  gitignored build artefact and the top-level README did not say to generate it first
+  gitignored build artifact and the top-level README did not say to generate it first
   (now step 0 of *Reproducing*). After `convert_r1_urdf.py` (26 joints) the sweep ran from
   the clean copy with the policy from `models/` and reproduced **all 16 points exactly**,
   same stable domain.

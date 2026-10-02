@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Play/replay a trained checkpoint for Isaac-Velocity-Flat-R1-Play-v0 (Week03, step 4).
+"""Play/replay a trained checkpoint for Isaac-Velocity-Flat-R1-Play-v0 (W03, step 4).
 
 Project's own copy of IsaacLab's official
 ``scripts/reinforcement_learning/rsl_rl/play.py`` -- same reason as
@@ -15,7 +15,7 @@ recording and an automatic exit after --video_length steps; otherwise the
 sim-step loop runs forever until killed (matches upstream play.py's
 behavior, unchanged here).
 
-Run from the project root, e.g. against Week03's first training run:
+Run from the project root, e.g. against W03's first training run:
     ~/IsaacLab/isaaclab.sh -p scripts/play_r1.py \\
         --task=Isaac-Velocity-Flat-R1-Play-v0 --num_envs 16 --headless \\
         --video --video_length 400 \\

@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Archive a Week03+ rsl_rl training run into experiments/ for ablation comparisons.
+"""Archive a W03+ rsl_rl training run into experiments/ for ablation comparisons.
 
 Reads whatever's been logged so far under logs/rsl_rl/r1_flat/<run_id>/
 (works on a still-running run, not just a finished one), and writes:
   - experiments/<run_id>/params/{env.yaml,agent.yaml}  (copied verbatim --
     the exact config, diff-able against another run)
   - experiments/<run_id>/pip_freeze.txt                (dependency versions,
-    Week04's FR-T6 reproducibility requirement)
+    W04's FR-T6 reproducibility requirement)
   - experiments/<run_id>/summary.md                    (final metrics pulled
     from that run's tensorboard event file)
   - a matching row appended (or updated) in experiments/runs.md

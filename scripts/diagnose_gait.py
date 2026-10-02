@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Quantify a trained policy's per-foot gait statistics (Week03 gait debugging).
+"""Quantify a trained policy's per-foot gait statistics (W03 gait debugging).
 
 Rolls out a checkpoint like ``play_r1.py`` does, but instead of rendering it
 records each foot's contact/air state every control step and reports:

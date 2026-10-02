@@ -5,7 +5,7 @@ The bridge already publishes everything needed on ~/imu at 50 Hz:
     [qw, qx, qy, qz, gx, gy, gz, gravx, gravy, gravz]
 
 so closed-loop turning needs no bridge change at all. Component order is
-(w, x, y, z) -- confirmed by measurement in Week06, and getting it wrong yields a
+(w, x, y, z) -- confirmed by measurement in W06, and getting it wrong yields a
 plausible-looking angle that is simply not the robot's heading.
 
 Limit worth stating plainly: this is a 6-axis IMU with no magnetometer, so yaw is

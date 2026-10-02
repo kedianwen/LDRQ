@@ -20,7 +20,7 @@ cruise_wz: 0.4           # rad/s, inside the trained [-0.5, 0.5]
 #   v_cal: unmeasured     -> distance commands are REFUSED, durations still work
 #
 # commanded since 2026-09-28: there is no venue for the speed test, and the task
-# needs distance only at the level of "a few metres". Replace with a number if a
+# needs distance only at the level of "a few meters". Replace with a number if a
 # measurement is ever made; nothing else changes.
 v_cal: commanded
 v_cal_rel_err: 0.15      # used only with a measured v_cal

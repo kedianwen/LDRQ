@@ -93,7 +93,7 @@ def envelope_from_task(task_cfg: pathlib.Path) -> dict:
         "vx": vx,
         "vy": vy,
         "wz": wz,
-        "note": "The end point of Week04's command curriculum. This is what "
+        "note": "The end point of W04's command curriculum. This is what "
                 "training covered, not a comfort limit. An axis pinned to "
                 "[0, 0] is REFUSED by the bridge, not clamped: it does not "
                 "exist in the training distribution.",

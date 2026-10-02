@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Random-action smoke test for the R1 flat-velocity task (Week02 exit criterion).
+"""Random-action smoke test for the R1 flat-velocity task (W02 exit criterion).
 
 This is our project's equivalent of Isaac Lab's own
 ``scripts/environments/random_agent.py``. We can't use that script directly:

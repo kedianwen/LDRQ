@@ -17,7 +17,7 @@ walk_metrics.py saved into the one table and the one number stage A is asked for
   # after the session, from the saved recordings
   python3 gain_sweep_real.py --collect ~/orin_commissioning/gain_sweep
   python3 gain_sweep_real.py --collect ~/orin_commissioning/gain_sweep \
-      --sim ~/R1process/outputs/gain_sweep/<date>/results.json
+      --sim <repo>/outputs/gain_sweep/<date>/results.json
 
 The gain label is the weakest link in the whole sweep: ~/status does not carry
 kp_scale, and kp_scale is read once at start-up, so a point recorded after a

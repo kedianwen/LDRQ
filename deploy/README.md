@@ -1,15 +1,16 @@
-# deploy/ — TensorRT + ROS 2 runner for the R1 policy
+# deploy/: TensorRT + ROS 2 runtime for the R1 policy
 
-The on-robot half of the project, built in W05–W08 of the project plan (W05 ONNX →
-TensorRT on the Orin, W06 the C++/ROS 2 hardware bridge, W07 walking on the real robot,
-W08 precision tiers; see *How the project was organised* in the
-[top-level README](../README.md#how-the-project-was-organised)). Self-contained:
-nothing here needs sudo, and the training environment (`conda env_isaaclab`) is
-never touched.
+The on-robot half of the project. It turns the trained policy (ONNX) into a TensorRT
+engine, checks the engine against PyTorch, and runs it in a 50 Hz control loop on the
+robot's own Jetson Orin NX, through a C++/ROS 2 hardware bridge to the motors. Nothing
+here needs sudo, and the training environment (`conda env_isaaclab`) is never touched.
 
-The same tree builds on two machines: the dev box (x86, TensorRT 10.7, ROS 2 humble),
-where the *Quick start* below runs the policy with no robot, and the robot's Orin NX
-(JetPack 5.1.1, TensorRT 8.5.2, ROS 2 foxy), where *Porting to the robot* applies.
+The same tree builds on two machines:
+- the dev box (x86, TensorRT 10.7, ROS 2 humble), where *Quick start* runs the policy
+  with no robot;
+- the robot's Orin NX (JetPack 5.1.1, TensorRT 8.5.2, ROS 2 foxy), where *On the robot*
+  applies. To set up a robot from scratch, the [robot release](../release/README.md) is
+  the simpler path.
 
 At run time on the robot, two processes form the control loop:
 
@@ -19,8 +20,8 @@ rt/lowcmd  <--  (PD, 500 Hz) <--~/joint_target--
                      ^ ~/cmd_vel  [vx, vy, wz] from mission_ctl (../mission_ctl/)
 ```
 
-The policy it runs is `2026-08-19_11-03-32_week04_nohead` — 425-dim
-observation, 24-dim action, 50 Hz.
+The policy is `2026-08-19_11-03-32_week04_nohead`: 425-dim observation, 24-dim action,
+50 Hz.
 
 ## Quick start
 
@@ -44,137 +45,14 @@ ros2 launch r1_policy_runner policy_node.launch.py \
     engine:=$PWD/deploy/artifacts/policy_fp32.plan mode:=selftest
 ```
 
-## What is here
+## On the robot
 
-| path | role |
-|---|---|
-| `setup.sh` | provisions TensorRT, its C++ headers and the CUDA runtime into `deploy/` |
-| `env.sh` | source-able; picks dev-box vs JetPack paths, steps out of conda, sources ROS 2 |
-| `tools/check_env.py` | version matrix; run it on both hosts and compare |
-| `tools/dump_interface.py` | emits the policy↔robot contract from a live Isaac Lab env |
-| `tools/make_fixture.py` | records PyTorch reference I/O for the parity check |
-| `tools/dump_actuator_gains.py` | resolves the six training actuator groups onto the 26 joints and writes `interface/actuator_gains.json`; ast-parses the asset rather than importing isaaclab, so it runs on the robot too |
-| `tools/gen_obs_table.py` | cross-checks the four files that decide the observation (training export, `joint_map.hpp`, both node yamls) and writes `interface/obs_consistency_table.md`; **non-zero exit on any disagreement** |
-| `ros2_ws/src/r1_policy_runner/` | the ROS 2 package: engine build, parity check, node |
-| `interface/policy_interface.{json,md}` | generated deployment contract (tracked) |
-| `artifacts/` | ONNX, fixture, engines (git-ignored) |
-
-Robot-side measurement and commissioning tools (W07 onward). All read the
-bridge's topics or files; none of them writes `rt/lowcmd`.
-
-| path | role |
-|---|---|
-| `tools/w08_preflight.sh` | pre-run checklist: clock lock, second writer on `rt/lowcmd`, stale install, ROS env mismatch across terminals; `--live` diagnoses an empty topic graph. Exit code = FAIL count |
-| `tools/probe_cpp/probe_lowcmd` | read-only `rt/lowcmd` subscriber: is anyone else writing? (developer mode does **not** stop `master_service`, so traffic is the criterion, not process names) |
-| `tools/probe_cpp/probe_lowstate` | read-only `rt/lowstate` probe; `--map` is how the slot map was measured |
-| `tools/probe_cpp/walk_metrics.py` | records one walking segment and reports survival, tracking, measured torque, smoothness. Refuses to report achieved speed without a tape measurement |
-| `tools/probe_cpp/gain_sweep_real.py` | stage A: plans the `kp_scale` points, records each one while `mission_ctl` walks the shared sequence (window sized for the worst case, mission report saved beside it), and reduces the recordings -- scored over the commanded window only -- into the real-robot stability-domain interval, marking each edge as *bounded* (a point beyond it failed) or *not bounded* (testing stopped there). A point the operator stopped with no usable recording goes into `operator_log.txt` as FAIL (FAIL only: it can close an edge, never widen the domain) |
-| `tools/probe_cpp/vcal.py` | tape + stopwatch readings → calibrated speed with a measured error bar. **Not run**: on 2026-09-28 the speed test was dropped (no venue; the task needs distance only to within "a few metres"), and `mission_ctl` assumes ground speed = command. Kept for if a measurement is ever made |
-| `tools/record_calib_obs.py`, `tools/bench_precision.py` | INT8 calibration recorder and FP32/FP16/INT8 benchmark. **Kept but unused**: INT8 was cut on 2026-09-26 (see below); `r1_build_engine --int8` still works and is the evidence path for that decision |
-
-Three executables:
-
-- **`r1_build_engine`** — ONNX → serialised engine. Must run on the machine that
-  will execute it.
-- **`r1_parity_check`** — replays the fixture through the engine, compares
-  against PyTorch, and profiles latency. **This is the gate**, not a nicety.
-- **`r1_policy_node`** — the ROS 2 node. `mode:=subscribe` reads one 85-float
-  sensor frame per cycle from `~/obs`; `mode:=selftest` self-drives at 50 Hz
-  with no robot attached (bench rehearsal for W06's hanging dry-run).
-
-## What sits on top of this
-
-`deploy/` is the runtime. Two sibling directories package it, and neither
-requires a change here:
-
-- **`../policy_pack/`** — turns "swap the trained policy" into one command. It
-  builds a bundle (ONNX + `policy_interface.json` + `actuator_gains.json` +
-  `command_envelope.json` + provenance + its own parity fixture), then on the
-  robot regenerates `joint_map.hpp` and both node yamls from it, rebuilds, builds
-  the engine and gates on parity against the bundle's own fixture. The bundle
-  deliberately does **not** carry the unitree_hg slot map: that is a property of
-  the robot, established by measurement.
-- **`../mission_ctl/`** — drives the robot by time, angle and speed using the
-  topics the bridge already has (`~/cmd_vel` out, `~/imu` and `~/status` in).
-  Turning is closed-loop on the IMU heading; distance is open-loop
-  time × the commanded speed, and is labelled "not measured", because there is
-  no base linear velocity in the observation and no odometry topic. Its `ask`
-  command adds English instructions through a local model served from `../llm/`.
-
-## Two findings that change how W05/W06 must be done
-
-### 1. TensorRT 10.3.0 silently computes the wrong answer on this host
-
-The natural choice was TensorRT **10.3.0**, the version JetPack 6.1/6.2 ships
-for Jetson Orin. On this box (Turing sm_75, driver 580.173) it builds an engine
-that loads, runs at full speed, reports no error, and **returns wrong numbers** —
-`max_abs 3.0e+01` against PyTorch, i.e. unrelated output.
-
-It is not a precision effect and not a bad tactic. Reproduced identically from
-the ONNX parser and from a network hand-built through the TensorRT API, at every
-builder optimisation level 0–5, in FP32 and FP16, from both C++ and Python,
-while **onnxruntime and PyTorch agree with each other to 1e-5**. Bisecting the
-graph: any subgraph containing two ELU layers is correct, three is wrong.
-
-TensorRT **10.7.0** matches PyTorch to `1.05e-05`. `setup.sh` pins it.
-
-The consequence is the important part. The dev box and the robot are now on
-**different TensorRT versions**, and the failure mode is invisible without a
-numerical reference — no exception, no warning, full speed, plausible-looking
-output. So:
-
-> **`r1_parity_check` must be run again on the robot, on the engine built
-> there, before the policy is ever allowed to drive a joint.** A green parity
-> check on the dev box says nothing about the Jetson.
-
-This is the same failure class as Week04's actuator-limit and head-tilt bugs:
-a defect that no aggregate metric surfaces, found only by comparison against an
-outside reference.
-
-### 2. The microbenchmark overstates inference speed by ~8x
-
-| measurement | p50 | p95 | p99 | max |
-|---|---|---|---|---|
-| tight loop (`r1_parity_check`, 2000 iters) | 23.6 µs | 24.7 µs | 43.5 µs | 387 µs |
-| **50 Hz duty cycle (`r1_policy_node`)** | **194 µs** | **217 µs** | **378 µs** | 474 µs |
-
-Same engine, same host. The control loop does ~24 µs of work every 20 ms, which
-is far too little to pull the GPU out of its idle power state: `nvidia-smi`
-reports `persistence_mode Disabled`, `pstate P8`, SM clock **450 MHz against a
-2100 MHz maximum**. The tight loop keeps the GPU boosted and measures a
-condition the real system never operates in.
-
-Both numbers are comfortable against the 20 ms budget (the honest one is ~1%),
-but quote the 50 Hz column. On Orin the equivalent knobs are `nvpmodel` and
-`jetson_clocks`, and they should be set before latency is characterised there.
-
-A corollary that ended up deciding W08: at batch 1 this model's latency is
-dominated by launch overhead, not arithmetic — FP16 produced **bit-identical**
-output to FP32 here because TensorRT chose FP32 kernels as faster. On the Orin
-that held (1.717e-05, 171 µs — not faster) **and** the FP16 engine came out
-**51.1% larger** (966,887 → 1,461,299 B), because the arithmetic saving does not
-cover the extra reformat layers and duplicated weights.
-
-**So INT8 was cut on 2026-09-26** rather than pursued: it cannot buy time, there
-is no evidence it buys space, and a defensible calibration set needs several real
-walking segments that do not exist yet (the observation is five stacked frames
-with 80% overlap, so 60 s of single-speed walking is one operating point). The INT8
-requirement (FR-Q3) is waived with evidence; the precision comparison (FR-Q4) is
-satisfied at two precisions. The robustness milestone's (M3's) controlled
-perturbation is `kp_scale` — the actuator-gain error, already a launch argument
-on the bridge — instead of numeric precision. See the repo README,
-[`docs/int8_waiver.md`](../docs/int8_waiver.md) and
-[`docs/stageA_kp_sweep.md`](../docs/stageA_kp_sweep.md).
-
-## Porting to the robot (W06)
-
-The artefact that travels is `policy.onnx` plus `interface/policy_interface.*`.
+The artifact that travels is `policy.onnx` plus `interface/policy_interface.*`.
 Engines do not travel.
 
 1. Copy `deploy/` to the Jetson, minus `.venv/`, `third_party/` and `artifacts/*.plan`,
-   as a `.tar.gz` (a zip loses the execute bits). The tree that was copied in W07,
-   Orin build output included, is a release asset: `bash tools/fetch_orin_snapshot.sh --extract`
-   puts it at `~/kdw_deploy`.
+   as a `.tar.gz` (a zip loses the execute bits). Or use the
+   [robot release](../release/README.md), which also installs a policy in one command.
 2. Do **not** run `setup.sh` — JetPack supplies TensorRT and CUDA. `env.sh`
    detects the absence of `third_party/` and falls back to `/usr`.
 3. `colcon build`, then `r1_build_engine` on the Jetson.
@@ -184,28 +62,55 @@ Engines do not travel.
 6. `mode:=selftest` first, then `mode:=subscribe` against the real sensor bridge
    with the robot hanging.
 
-## Observation layout — the one thing that will silently break
+## What is here
 
-The 425 floats are **term-major**, not frame-major:
+| path | role |
+|---|---|
+| `env.sh` | source it: picks dev-box or JetPack paths, leaves conda, sources ROS 2 |
+| `setup.sh` | dev box only: provisions TensorRT 10.7, its headers and the CUDA runtime into `deploy/` |
+| `ros2_ws/src/r1_policy_runner/` | engine builder, parity checker and the policy node (C++) |
+| `ros2_ws/src/r1_hw_bridge/` | the hardware bridge (C++): the only writer of `rt/lowcmd` |
+| `interface/` | the policy↔robot contract (`policy_interface.*`), per-joint gains, the joint-map evidence |
+| `artifacts/` | ONNX, fixture, engines (not tracked) |
+| `tools/check_env.py` | version matrix; run it on both hosts and compare |
+| `tools/dump_interface.py`, `make_fixture.py`, `dump_actuator_gains.py` | export the contract, the PyTorch reference outputs and the per-joint gains from training |
+| `tools/gen_obs_table.py` | cross-check the four files that define the observation; non-zero exit on any disagreement |
 
-```
-[ang_vel×5][gravity×5][command×5][joint_pos×5][joint_vel×5][action×5]
-```
+Robot-side measurement tools. All of them only read; none writes `rt/lowcmd`.
 
-not five consecutive 85-float frames. Both are 425 floats long, so the wrong
-one loads and runs and produces confident garbage. `ObsAssembler` owns this and
-`test_obs_assembler.cpp` asserts the correct layout *and* explicitly asserts
-inequality with the frame-major one. Publishers should send the current frame
-only and let the node stack it.
+| path | role |
+|---|---|
+| `tools/w08_preflight.sh` | pre-run checklist: clock lock, a second writer, stale install, ROS environment; exit code = FAIL count |
+| `tools/probe_cpp/probe_lowcmd` | is anyone else writing `rt/lowcmd`? |
+| `tools/probe_cpp/probe_lowstate` | read `rt/lowstate`; `--map` measured the motor-slot map |
+| `tools/probe_cpp/walk_metrics.py` | one walking segment: survival, tracking, torque, smoothness |
+| `tools/probe_cpp/turn_response.py` | turn rate actually achieved against the command |
+| `tools/probe_cpp/gain_sweep_real.py` | the real-robot half of the `kp_scale` sweep: plan, record, reduce |
+| `tools/probe_cpp/vcal.py` | speed calibration from tape and stopwatch; not used (see below) |
+| `tools/record_calib_obs.py`, `tools/bench_precision.py` | INT8 calibration and precision benchmark; kept, unused since INT8 was dropped |
 
-The 24 action joints are in **articulation order**, which is the robot's
-kinematic-tree order and not the order of the regexes that selected them —
-`waist_roll_joint` sits at index 2, between the hip pitches and the hip rolls.
-Read the order out of `interface/policy_interface.md`; do not retype it.
+Notes on the measurement tools:
+- `probe_lowcmd`: switching to developer mode does **not** stop Unitree's
+  `master_service` process, so traffic on the topic is the test, not process names.
+- `walk_metrics.py` refuses to report achieved speed without a tape measurement.
+- `gain_sweep_real.py` scores each recording over the commanded window only, and marks
+  each edge of the stable interval as *bounded* (a point beyond it failed) or *not
+  bounded* (testing stopped there). A point the operator stopped with no usable recording
+  is logged as FAIL: it can close an edge, never widen the domain.
+- `vcal.py`: the speed test was dropped on 2026-09-28 (no venue; the task needs distance
+  only to "a few meters"), so `mission_ctl` takes ground speed as the command.
 
-## The hardware bridge (`r1_hw_bridge`)
+The three executables:
 
-Added in W06. The only package that knows Unitree message types:
+- **`r1_build_engine`**: ONNX → engine. Must run on the machine that will execute it.
+- **`r1_parity_check`**: replays the fixture through the engine, compares with PyTorch
+  and profiles latency. **This is the gate**, not a nicety.
+- **`r1_policy_node`**: the ROS 2 node. `mode:=subscribe` reads one 85-float frame per
+  cycle from `~/obs`; `mode:=selftest` drives itself at 50 Hz with no robot attached.
+
+## Design: the hardware bridge (`r1_hw_bridge`)
+
+The only package that knows Unitree message types:
 
 ```
 rt/lowstate (DDS)  ->  ~/obs            85 floats per control step
@@ -261,7 +166,7 @@ Evidence per row is in `interface/joint_map_r1.md`.
 Do not `#include` the vendor enum: it has `RightShoulderPitch = 29`, a typo for
 19, which used as a slot number addresses `head_pitch`.
 
-### Degrade behaviour
+### Degrade behavior
 
 `/usr/local/include/unitree/robot/` ships clients for a2, b2, g1, go2 and h1 --
 **not r1**. There is no vendor damping or e-stop call to delegate to, so the
@@ -289,3 +194,119 @@ as it is: changing it means a rebuild on the robot, and the rule is enough.
 | `mode_pr` | must be `PR` (0). `AB` addresses the ankles' parallel actuators instead of their pitch/roll joint angles |
 | `mode_machine` | echoed back from `rt/lowstate` on every command |
 | `crc` | recomputed per frame with the vendor's non-standard CRC32 (`crc32.hpp`); incoming `LowState` is checked too |
+
+## What builds on this
+
+`deploy/` is the runtime. Two sibling directories package it, and neither
+requires a change here:
+
+- **`../policy_pack/`** — turns "swap the trained policy" into one command. It
+  builds a bundle (ONNX + `policy_interface.json` + `actuator_gains.json` +
+  `command_envelope.json` + provenance + its own parity fixture), then on the
+  robot regenerates `joint_map.hpp` and both node yamls from it, rebuilds, builds
+  the engine and gates on parity against the bundle's own fixture. The bundle
+  deliberately does **not** carry the unitree_hg slot map: that is a property of
+  the robot, established by measurement.
+- **`../mission_ctl/`** — drives the robot by time, angle and speed using the
+  topics the bridge already has (`~/cmd_vel` out, `~/imu` and `~/status` in).
+  Turning is closed-loop on the IMU heading; distance is open-loop
+  time × the commanded speed, and is labeled "not measured", because there is
+  no base linear velocity in the observation and no odometry topic. Its `ask`
+  command adds English instructions through a local model served from `../llm/`.
+
+## Known pitfalls
+
+### Two silent failures to know before building
+
+#### 1. TensorRT 10.3.0 silently computes the wrong answer on this host
+
+The natural choice was TensorRT **10.3.0**, the version JetPack 6.1/6.2 ships
+for Jetson Orin. On this box (Turing sm_75, driver 580.173) it builds an engine
+that loads, runs at full speed, reports no error, and **returns wrong numbers** —
+`max_abs 3.0e+01` against PyTorch, i.e. unrelated output.
+
+It is not a precision effect and not a bad tactic. Reproduced identically from
+the ONNX parser and from a network hand-built through the TensorRT API, at every
+builder optimization level 0–5, in FP32 and FP16, from both C++ and Python,
+while **onnxruntime and PyTorch agree with each other to 1e-5**. Bisecting the
+graph: any subgraph containing two ELU layers is correct, three is wrong.
+
+TensorRT **10.7.0** matches PyTorch to `1.05e-05`. `setup.sh` pins it.
+
+The consequence is the important part. The dev box and the robot are now on
+**different TensorRT versions**, and the failure mode is invisible without a
+numerical reference — no exception, no warning, full speed, plausible-looking
+output. So:
+
+> **`r1_parity_check` must be run again on the robot, on the engine built
+> there, before the policy is ever allowed to drive a joint.** A green parity
+> check on the dev box says nothing about the Jetson.
+
+This is the same failure class as W04's actuator-limit and head-tilt bugs:
+a defect that no aggregate metric surfaces, found only by comparison against an
+outside reference.
+
+#### 2. The microbenchmark overstates inference speed by ~8x
+
+| measurement | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| tight loop (`r1_parity_check`, 2000 iters) | 23.6 µs | 24.7 µs | 43.5 µs | 387 µs |
+| **50 Hz duty cycle (`r1_policy_node`)** | **194 µs** | **217 µs** | **378 µs** | 474 µs |
+
+Same engine, same host. The control loop does ~24 µs of work every 20 ms, which
+is far too little to pull the GPU out of its idle power state: `nvidia-smi`
+reports `persistence_mode Disabled`, `pstate P8`, SM clock **450 MHz against a
+2100 MHz maximum**. The tight loop keeps the GPU boosted and measures a
+condition the real system never operates in.
+
+Both numbers are comfortable against the 20 ms budget (the honest one is ~1%),
+but quote the 50 Hz column. On Orin the equivalent knobs are `nvpmodel` and
+`jetson_clocks`, and they should be set before latency is characterised there.
+
+A corollary that later decided against INT8: at batch 1 this model's latency is
+dominated by launch overhead, not arithmetic — FP16 produced **bit-identical**
+output to FP32 here because TensorRT chose FP32 kernels as faster. On the Orin
+that held (1.717e-05, 171 µs — not faster) **and** the FP16 engine came out
+**51.1% larger** (966,887 → 1,461,299 B), because the arithmetic saving does not
+cover the extra reformat layers and duplicated weights.
+
+**So INT8 was cut on 2026-09-26** rather than pursued: it cannot buy time, there
+is no evidence it buys space, and a defensible calibration set needs several real
+walking segments that do not exist yet (the observation is five stacked frames
+with 80% overlap, so 60 s of single-speed walking is one operating point). The INT8
+requirement (FR-Q3) is waived with evidence; the precision comparison (FR-Q4) is
+satisfied at two precisions. The robustness milestone's (M3's) controlled
+perturbation is `kp_scale` — the actuator-gain error, already a launch argument
+on the bridge — instead of numeric precision. See the repo README,
+[`docs/int8_waiver.md`](../docs/int8_waiver.md) and
+[`docs/stageA_kp_sweep.md`](../docs/stageA_kp_sweep.md).
+
+### The observation layout: the one thing that will silently break
+
+The 425 floats are **term-major**, not frame-major:
+
+```
+[ang_vel×5][gravity×5][command×5][joint_pos×5][joint_vel×5][action×5]
+```
+
+not five consecutive 85-float frames. Both are 425 floats long, so the wrong
+one loads and runs and produces confident garbage. `ObsAssembler` owns this and
+`test_obs_assembler.cpp` asserts the correct layout *and* explicitly asserts
+inequality with the frame-major one. Publishers should send the current frame
+only and let the node stack it.
+
+The 24 action joints are in **articulation order**, which is the robot's
+kinematic-tree order and not the order of the regexes that selected them —
+`waist_roll_joint` sits at index 2, between the hip pitches and the hip rolls.
+Read the order out of `interface/policy_interface.md`; do not retype it.
+
+## History
+
+- W05: ONNX → TensorRT, the parity checker, the policy node; parity passed on the Orin
+  (1.335e-05). The two silent failures above were found here.
+- W06: the hardware bridge, watchdog and fault injection; first walk in a gantry.
+- W07: walking on the real robot; the measurement tools.
+- W08: precision tiers measured, INT8 dropped ([docs/int8_waiver.md](../docs/int8_waiver.md)).
+- Stage A: `gain_sweep_real.py`; stage B: `turn_response.py`; stage D: installs through
+  `../policy_pack/` ([docs/stageD_policy_swap.md](../docs/stageD_policy_swap.md)).
+- Weeks and stages: [docs/project_history.md](../docs/project_history.md).

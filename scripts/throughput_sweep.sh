@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Week01 RK-7: sweep num_envs on the official H1 flat-velocity task until OOM,
+# W01 RK-7: sweep num_envs on the official H1 flat-velocity task until OOM,
 # to find (a) the max num_envs this 2080Ti can hold, (b) steady-state fps at
 # each level, (c) per-million-env-step wall time derived from fps.
 #

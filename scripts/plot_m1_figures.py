@@ -5,7 +5,7 @@
 
 """Render the M1 gate-review figures from data already on disk.
 
-The Week04 plan asks for "DR 对曲线/表现的影响（有/无 DR 对比一张图）" -- a
+The W04 plan asks for "DR 对曲线/表现的影响（有/无 DR 对比一张图）" -- a
 figure, not a table. This script builds it from the baseline reports that
 ``eval_baseline.py`` already wrote and the tensorboard scalars the training runs
 already logged, so the figure is regenerated rather than redrawn by hand and
@@ -14,13 +14,13 @@ cannot drift away from the numbers it claims to show.
 Two figures:
 
 ``m1_dr_robustness.png``
-    The headline. Tracking error against commanded speed for the Week03 policy
-    (trained without domain randomization) and the final Week04 policy, each
+    The headline. Tracking error against commanded speed for the W03 policy
+    (trained without domain randomization) and the final W04 policy, each
     under nominal and stress conditions, plus fall counts and energy.
 
 ``m1_training_curves.png``
-    Mean reward against iteration for the three Week04 runs. These three share a
-    reward function, so the curves are directly comparable; the Week03 runs are
+    Mean reward against iteration for the three W04 runs. These three share a
+    reward function, so the curves are directly comparable; the W03 runs are
     deliberately absent because the reward terms changed between weeks and
     overlaying them would invite a comparison the numbers do not support.
 
@@ -65,7 +65,7 @@ _RESUME_WARMUP = 25
 
 # Instrument palette: teal for the policy that carries DR, warm grey-red for the
 # one that does not. Nominal is solid, stress dashed -- so the reader compares
-# line colour for "which policy" and line style for "which condition".
+# line color for "which policy" and line style for "which condition".
 C_NODR = "#B4471F"
 C_DR = "#0B6255"
 C_GRID = "#C9D2D0"
@@ -100,7 +100,7 @@ _ROW = re.compile(r"^\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*(.+?)\s*\|\s*([\d.]+)\
 def read_baseline(run: str, filename: str) -> dict:
     """Pull the per-speed table out of an eval_baseline.py report.
 
-    Handles both column layouts the script has emitted: Week03's reports carry a
+    Handles both column layouts the script has emitted: W03's reports carry a
     ``survival`` column, later ones carry ``falls / episodes``.
     """
     path = _LOG_ROOT / run / filename
@@ -188,12 +188,12 @@ def figure_robustness() -> Path:
     ax.axhline(PG1_THRESHOLD, color=C_RULE, linestyle=":", linewidth=1.4)
     ax.text(0.31, PG1_THRESHOLD * 1.06, f"PG-1 阈值 {PG1_THRESHOLD}", fontsize=8.5, color=C_TEXT)
 
-    ax.plot(w03_nom["speeds"], w03_nom["errors"], "-o", color=C_NODR, ms=5, lw=1.9, label="Week03 无DR · 标称")
+    ax.plot(w03_nom["speeds"], w03_nom["errors"], "-o", color=C_NODR, ms=5, lw=1.9, label="W03 无DR · 标称")
     ax.plot(w03_str["speeds"], w03_str["errors"], "--s", color=C_NODR, ms=5, lw=1.9, alpha=0.75,
-            label="Week03 无DR · 扰动")
-    ax.plot(w04_nom["speeds"], w04_nom["errors"], "-o", color=C_DR, ms=5, lw=2.2, label="Week04 有DR · 标称")
+            label="W03 无DR · 扰动")
+    ax.plot(w04_nom["speeds"], w04_nom["errors"], "-o", color=C_DR, ms=5, lw=2.2, label="W04 有DR · 标称")
     ax.plot(w04_str["speeds"], w04_str["errors"], "--s", color=C_DR, ms=5, lw=2.2, alpha=0.85,
-            label="Week04 有DR · 扰动")
+            label="W04 有DR · 扰动")
 
     ax.set_xlabel("指令前进速度 (m/s)", fontsize=10)
     ax.set_ylabel("线速度跟踪误差 (m/s)", fontsize=10)
@@ -204,7 +204,7 @@ def figure_robustness() -> Path:
 
     # -- (b) falls ----------------------------------------------------------
     ax = axes[1]
-    labels = ["Week03\n无DR", "Week04\n初版", "Week04\n最终版"]
+    labels = ["W03\n无DR", "W04\n初版", "W04\n最终版"]
     values = [w03_str["falls"][0], dr_str["falls"][0], w04_str["falls"][0]]
     totals = [w03_str["falls"][1], dr_str["falls"][1], w04_str["falls"][1]]
     bars = ax.bar(labels, values, color=[C_NODR, "#C9895F", C_DR], width=0.6)
@@ -218,8 +218,8 @@ def figure_robustness() -> Path:
 
     # -- (c) energy ---------------------------------------------------------
     ax = axes[2]
-    ax.plot(w03_nom["speeds"], w03_nom["energies"], "-o", color=C_NODR, ms=5, lw=1.9, label="Week03 无DR")
-    ax.plot(w04_nom["speeds"], w04_nom["energies"], "-o", color=C_DR, ms=5, lw=2.2, label="Week04 最终版")
+    ax.plot(w03_nom["speeds"], w03_nom["energies"], "-o", color=C_NODR, ms=5, lw=1.9, label="W03 无DR")
+    ax.plot(w04_nom["speeds"], w04_nom["energies"], "-o", color=C_DR, ms=5, lw=2.2, label="W04 最终版")
     drop = 1 - w04_nom["energies"][-1] / w03_nom["energies"][-1]
     ax.annotate(f"1.0 m/s 处 −{drop * 100:.0f}%",
                 xy=(1.0, w04_nom["energies"][-1]), xytext=(0.62, w04_nom["energies"][-1] + 55),
@@ -231,11 +231,11 @@ def figure_robustness() -> Path:
     ax.legend(fontsize=8.5, frameon=False, loc="upper left")
     _style(ax)
 
-    fig.suptitle("M1 · 域随机化的作用：Week03（无DR）对比 Week04 最终策略",
+    fig.suptitle("M1 · 域随机化的作用：W03（无DR）对比 W04 最终策略",
                  fontsize=13.5, fontweight="bold", x=0.007, ha="left", y=0.995)
     fig.text(0.007, 0.005,
              "扰动条件 = 地面摩擦 0.6 + 每 5s ±0.6 m/s 侧推。每档 64 环境 × 500 控制步。"
-             "注意：Week03→Week04 除 DR 外还改动了观测历史、执行器规格、动作空间与指令课程，"
+             "注意：W03→W04 除 DR 外还改动了观测历史、执行器规格、动作空间与指令课程，"
              "因此这不是单变量消融；严格的 DR 消融是 W11 的排期内容。",
              fontsize=8, color="#55625F", ha="left")
 
@@ -261,22 +261,22 @@ def figure_training() -> Path:
     fig.patch.set_facecolor("white")
 
     finals = []
-    for run, label, colour in runs:
+    for run, label, color in runs:
         steps, values = read_reward_curve(run)
-        ax.plot(steps, values, lw=2.0, color=colour, label=label)
-        finals.append((steps[-1], values[-1], colour))
+        ax.plot(steps, values, lw=2.0, color=color, label=label)
+        finals.append((steps[-1], values[-1], color))
 
-    for x, y, colour in finals:
-        ax.plot([x], [y], "o", color=colour, ms=6)
+    for x, y, color in finals:
+        ax.plot([x], [y], "o", color=color, ms=6)
         ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(6, -3), textcoords="offset points",
-                    fontsize=9.5, fontweight="bold", color=colour)
+                    fontsize=9.5, fontweight="bold", color=color)
 
     ax.axvline(1500, color=C_RULE, linestyle=":", lw=1.2)
     ax.text(1520, ax.get_ylim()[0] + 1.2, "it1500", fontsize=8.5, color="#55625F")
 
     ax.set_xlabel("迭代", fontsize=10)
     ax.set_ylabel("平均回合回报", fontsize=10)
-    ax.set_title("Week04 三次训练的学习曲线（奖励函数相同，可直接比较）",
+    ax.set_title("W04 三次训练的学习曲线（奖励函数相同，可直接比较）",
                  fontsize=12.5, fontweight="bold", loc="left")
     ax.legend(fontsize=9, frameon=False, loc="lower right")
     _style(ax)
@@ -288,7 +288,7 @@ def figure_training() -> Path:
     fig.text(0.01, 0.008,
              "week04_dr 为「训练 300 轮 + 续训」两阶段，曲线由两个日志拼接，"
              "续训后前 25 轮已剔除（rsl_rl 的回报缓冲重启后为空）。"
-             "Week03 曲线未叠加：奖励项在两周之间变过，不可比。",
+             "W03 曲线未叠加：奖励项在两周之间变过，不可比。",
              fontsize=8.5, color="#55625F", ha="left")
 
     fig.tight_layout(rect=(0, 0.075, 1, 1))

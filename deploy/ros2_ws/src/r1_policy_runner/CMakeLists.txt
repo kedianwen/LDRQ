@@ -24,7 +24,7 @@ find_package(std_msgs REQUIRED)
 #
 # CUDAToolkit is deliberately NOT used to find cudart: on this host the apt CUDA
 # is 11.5 while TensorRT 10.3's x86 build links libcudart.so.12, and pulling two
-# cudart majors into one process is undefined behaviour.
+# cudart majors into one process is undefined behavior.
 # ---------------------------------------------------------------------------
 set(TENSORRT_ROOT "$ENV{TENSORRT_ROOT}" CACHE PATH "TensorRT install prefix")
 set(CUDART_ROOT   "$ENV{CUDART_ROOT}"   CACHE PATH "CUDA runtime prefix")

@@ -150,7 +150,7 @@ void RobotIo::Send(const std::array<MotorCommand, kSlots> & cmd, uint8_t mode_ma
 {
   if (!impl_->pub) {return;}
 
-  // Value-initialised: any slot the caller left at mode 0 stays fully zeroed.
+  // Value-initialized: any slot the caller left at mode 0 stays fully zeroed.
   // Enabling a motor the robot does not have is not something to try blind.
   LowCmd out{};
   out.mode_pr() = kModePR;

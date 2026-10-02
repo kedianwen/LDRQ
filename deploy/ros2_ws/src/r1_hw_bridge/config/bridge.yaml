@@ -24,7 +24,7 @@
     # joint targets for a state it has never seen.
     cmd_vel_timeout_ms: 500.0   # deadman: stale commands decay to zero, not hold
     # The envelope below is what training actually covered -- the end point of
-    # Week04's command curriculum (COMMAND_RANGES_FINAL, tasks/r1_flat/flat_env_cfg.py).
+    # W04's command curriculum (COMMAND_RANGES_FINAL, tasks/r1_flat/flat_env_cfg.py).
     # It is not a comfort limit.
     #   vx  forward only, up to 1.0 m/s. Reverse was never trained.
     #   vy  pinned to 0 for ALL of training. Sideways is not weakly trained, it

@@ -5,7 +5,7 @@
 
 """Check that current code still reproduces an archived run's configuration.
 
-The Week04 plan's FR-T6 asks for "所有超参进 yaml". In Isaac Lab the
+The W04 plan's FR-T6 asks for "所有超参进 yaml". In Isaac Lab the
 hyperparameters live in Python dataclasses (``flat_env_cfg.py``,
 ``rsl_rl_ppo_cfg.py``) and the ``params/{env,agent}.yaml`` next to each run are a
 *dump* of the resolved config, not an input to it. Editing that yaml changes
@@ -105,7 +105,7 @@ def resolve_like_scene_construction(cfg: dict) -> dict:
     * ``terrain.num_envs`` and ``terrain.env_spacing`` are copied down from the
       scene config at construction time.
 
-    Normalising them here -- rather than adding them to an ignore list -- keeps
+    Normalizing them here -- rather than adding them to an ignore list -- keeps
     the comparison honest: every remaining difference is a real one.
     """
     scene = cfg.get("scene", {})

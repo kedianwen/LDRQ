@@ -5,7 +5,7 @@ The W06 plan asks for a table cross-checking the deployment observation against
 what training produced. A table typed by hand is worth very little: it records
 what someone believed on the day they wrote it, and it goes stale the moment a
 constant moves. So this script *derives* the table from the four files that
-actually decide the behaviour, and returns non-zero if any two of them disagree:
+actually decide the behavior, and returns non-zero if any two of them disagree:
 
   1. deploy/interface/policy_interface.json          <- training, exported
   2. .../r1_hw_bridge/include/r1_hw_bridge/joint_map.hpp  <- what the bridge reads

@@ -1,30 +1,52 @@
-# llm/ · the model server on the robot (stage C)
+# llm/: the language-model server on the robot
 
-The local model behind `mission_ctl/r1_mission_cli.py ask`. It is an Ollama build for
-JetPack 5, running in user space on the robot's Orin NX: no sudo, no systemd, no apt, no
-internet at run time. What the model does, and why it cannot move the robot by itself,
-is in [docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md).
+The local model behind `mission_ctl/r1_mission_cli.py ask`: an Ollama build for
+JetPack 5, running in user space on the robot's Orin NX. No sudo, no systemd, no apt, and
+no internet connection at run time. The model only transcribes a sentence into steps;
+what it does and why it cannot move the robot by itself is in
+[docs/stageC_nl_eval.md](../docs/stageC_nl_eval.md), and how it fits into the whole system
+in [docs/system_architecture.md](../docs/system_architecture.md).
 
-| file | where it runs | what it does |
+| file | runs on | what it does |
 |---|---|---|
-| `ollama_ctl.sh` | robot | `start`, `warm`, `health`, `status`, `stop`, `restart`, `watchdog`, `models`, `log` |
-| `coexist.py` | robot | control-loop timing (obs Hz, setpoint lag, inference p99) while the model decodes on the GPU, the CPU, and in the real `ask` loop at `mission.yaml`'s placement (plan 3.6); judges the control loop's limits and plan 3.6's targets separately, and says what each placement measured; `--selftest` runs anywhere |
-| `env_check.sh` | robot | memory, disk, clocks, and whether any route to a hosted model exists (plan 3.1) |
-| `make_runtime.sh` | dev box | builds the runtime package: Ollama for JetPack 5 plus the models |
+| `ollama_ctl.sh` | robot | start, check, stop and restart the server |
+| `coexist.py` | robot | measure the control loop's timing while the model generates |
+| `env_check.sh` | robot | memory, disk, clocks, and that no route to a hosted model exists |
+| `make_runtime.sh` | dev box | build the runtime package: Ollama for JetPack 5 plus models |
 
-"Plan 3.1" and "plan 3.6" are items of the stage C plan, which is not in this repository:
-3.1 says the model runs on the robot with no route to a hosted model; 3.6 is the
-coexistence criterion (while the model decodes, policy inference p99 ≤ 2 ms and setpoint
-lag p95 ≤ idle + 1 ms). How the model fits into the whole system:
-[docs/system_architecture.md](../docs/system_architecture.md).
+The runtime (`ollama/`) and the models (`models/`) are not in git (licenses, ~3.5 GB).
+They come with the [robot release](../release/README.md), or from `make_runtime.sh`
+(*Building the runtime package*, below). On any other machine, a stock Ollama with
+`ollama pull qwen3:1.7b` serves the same model to `ask`.
 
-The runtime (`ollama/`) and the models (`models/`) are not in git (licences, ~3.5 GB).
-`make_runtime.sh` builds them into one package from the pinned Ollama release and a
-model store (*Build the runtime package* below); it extracts next to these scripts.
-On any other machine, a stock Ollama with `ollama pull qwen3:1.7b` serves the same model
-to `ask`.
+## How to use it
 
-## The runtime, and why it is built this way
+```bash
+bash ollama_ctl.sh start      # start the server and wait until it answers
+bash ollama_ctl.sh warm       # load the model now; the first load is the slow one
+bash ollama_ctl.sh health     # one real `ask` request within a deadline; exit 0 = healthy
+bash ollama_ctl.sh status     # pid, version, GPU or CPU, loaded models
+bash ollama_ctl.sh stop | restart | models | log
+bash ollama_ctl.sh watchdog   # health every 30 s, restart after 2 failures (not while the robot moves)
+```
+
+`coexist.py` measures the control loop while the model generates:
+
+```bash
+python3 coexist.py --stack-log <stack log> --model qwen3:1.7b   # on the robot, stack running
+python3 coexist.py --selftest                                   # anywhere: checks its own logic
+```
+
+It runs five 60 s phases (idle, GPU generation, real `ask` requests, CPU generation,
+idle) and reports observation rate, setpoint lag and policy inference time for each. It
+judges two tiers:
+- **limits**, which the control loop cannot give up: observations ≥ 45 Hz with no slow
+  window and no DEGRADED; no failed inference, and the slowest one inside the 20 ms step;
+  setpoint lag p95 inside one control step. A broken limit fails the run.
+- **targets**, set before any measurement: policy inference p99 ≤ 2 ms and setpoint lag
+  p95 ≤ idle + 1 ms. A miss is reported, and the run still passes.
+
+## Design: the runtime, and why it is built this way
 
 Ollama **v0.34.4** (2026-09-23). The candidate runtimes were checked on 2026-09-28:
 TensorRT-LLM needs JetPack 6.1, MLC-LLM on L4T R35 predates Qwen2, and
@@ -57,36 +79,18 @@ whose models are 4.5–9.5 GB.
   silently put the model on the CPU. `status` shows where the model landed
   (`size_vram`).
 
-## Known faults, and what handles each
-
-| fault | handled by |
-|---|---|
-| llama-server on the Orin NX sometimes starts and never serves (llama.cpp #29499, open), while `/api/version` keeps answering. Not seen in the 2026-09-30 session | `health` makes one real `ask` request within a deadline (`r1_mission_cli.py ask-check --once`), and `watchdog` restarts after 2 failures. `ask` times out with the restart command in its message |
-| Ollama reloads the model whenever a request asks for another placement, and keeps only the last prompt in its cache | everything that talks to the server sends what `ask` sends, from `mission.yaml`: `health`/`warm`/`watchdog` through `ask-check --once`, and `coexist.py`'s `ask` phase. Until 2026-09-30 the health check was a bare generate at Ollama's default placement, which would have moved a CPU-placed model back to the GPU every 30 s |
-| a vision projector reserves a 32 GB VMM pool, which fails on Jetson (llama.cpp #29142, open) | only text-only models are shipped: qwen3 and qwen2.5 have no projector |
-| tar 1.30 has no zstd | repacked as gzip on the dev box |
-| the first request loads the model from disk | `ollama_ctl.sh warm` before the first `ask`: it loads the model where `ask` will use it and leaves the `ask` prompt cached. `keep_alive` 30 min |
-
-## Where the model runs: GPU or CPU (plan 3.6, measured 2026-09-30)
+## Design: where the model runs, GPU or CPU
 
 The Orin NX's GPU is shared with the policy's TensorRT engine. `coexist.py` on the
 robot, qwen3:1.7b, the stack at kp 1.3, in two rounds (output off, then on):
 
-| model on | policy inference p99 | setpoint lag p95 | obs Hz | decode | limits | plan 3.6 targets |
+| model on | policy inference p99 | setpoint lag p95 | obs Hz | decode | limits | targets |
 |---|---|---|---|---|---|---|
 | — (idle) | 486 µs | 0.6 ms | 50.0 | | | |
 | **GPU (kept)** | 5010 µs | 5.1 ms | 50.0 | 32 tok/s | kept | **missed** (2000 µs; idle + 1 ms) |
 | CPU, 4 threads | 542 µs | 0.9 ms | 50.0 | 21 tok/s | kept | met |
 
-`coexist.py` judges each phase in two tiers:
-- **Limits:** what the control loop cannot give up. Obs ≥ 45 Hz with no slow window and
-  no DEGRADED; no failed inference, and the slowest inference inside the 20 ms step;
-  setpoint lag p95 inside the one step the policy was trained with. A broken limit fails
-  the run.
-- **Targets:** plan 3.6 as written. A miss is reported, and the run still passes.
-
-**Decision (user, 2026-09-30): the model stays on the GPU; the GPU side is optimized
-later.**
+**Decision (2026-09-30): the model stays on the GPU; the GPU side is optimized later.**
 - On the GPU the policy waits for the GPU while the model decodes. Its inference runs at
   3.5 ms p50, with a steady ceiling of about 5 ms, which looks like the GPU's time slice.
 - Nothing misbehaved: no DEGRADED and no policy failure, with the robot standing too.
@@ -100,6 +104,16 @@ later.**
   prompt is processed on the CPU.
 - Switching is two lines in `mission.yaml` (`llm_num_gpu: 0`, `llm_num_thread: 4`).
   `warm`, `health` and `ask` then all send the same placement.
+
+## Known pitfalls, and what handles each
+
+| fault | handled by |
+|---|---|
+| llama-server on the Orin NX sometimes starts and never serves (llama.cpp #29499, open), while `/api/version` keeps answering. Not seen in the 2026-09-30 session | `health` makes one real `ask` request within a deadline (`r1_mission_cli.py ask-check --once`), and `watchdog` restarts after 2 failures. `ask` times out with the restart command in its message |
+| Ollama reloads the model whenever a request asks for another placement, and keeps only the last prompt in its cache | everything that talks to the server sends what `ask` sends, from `mission.yaml`: `health`/`warm`/`watchdog` through `ask-check --once`, and `coexist.py`'s `ask` phase. |
+| a vision projector reserves a 32 GB VMM pool, which fails on Jetson (llama.cpp #29142, open) | only text-only models are shipped: qwen3 and qwen2.5 have no projector |
+| tar 1.30 has no zstd | repacked as gzip on the dev box |
+| the first request loads the model from disk | `ollama_ctl.sh warm` before the first `ask`: it loads the model where `ask` will use it and leaves the `ask` prompt cached. `keep_alive` 30 min |
 
 ## If Ollama will not run: the llama-server fallback
 
@@ -117,7 +131,7 @@ fallback) and `qwen2.5:1.5b` (the plan's baseline). All are Q4_K_M, Apache-2.0, 
 Ollama library, and copied into the package as manifests and blobs, so the robot needs
 neither `ollama pull` nor `ollama create`.
 
-## Build the runtime package (dev box)
+## Building the runtime package (dev box)
 
 ```bash
 mkdir -p outputs/llm/downloads && cd outputs/llm/downloads
@@ -130,8 +144,17 @@ for a in json.load(sys.stdin)["assets"]:
     if a["name"].startswith("ollama-linux-arm64"): print(a["digest"][7:], "", a["name"])' > SHA256SUMS
 # a dev-box model store with the models pulled (any Ollama of the same version):
 OLLAMA_MODELS=$PWD/../ollama_models ollama serve &   # then: ollama pull qwen3:1.7b ...
-cd ~/R1process && bash llm/make_runtime.sh            # -> ~/r1_stageC_llm_runtime_<date>.tar.gz
+cd <repo root> && bash llm/make_runtime.sh            # -> ~/r1_stageC_llm_runtime_<date>.tar.gz
 ```
 
 The package's `RUNTIME_SHA256SUMS` lists every file. On the robot:
-`cd ~/kdw_deploy/llm && sha256sum -c --quiet RUNTIME_SHA256SUMS`.
+`cd <install dir>/llm && sha256sum -c --quiet RUNTIME_SHA256SUMS`. The robot release is built
+from this package by `../release/make_release.sh`.
+
+## History
+
+Built in stage C (2026-09-28 to 09-30). The stage C plan asked for two things this
+directory measures: the model runs on the robot with no route to a hosted model
+(`env_check.sh`), and the control loop keeps its timing while the model runs
+(`coexist.py`; its targets are the plan's numbers). Stages:
+[docs/project_history.md](../docs/project_history.md).

@@ -3,14 +3,12 @@
 `Isaac-Velocity-Flat-R1-v0`: R1 walking on flat ground, tracking a commanded forward
 speed and yaw rate. The deployed policy
 ([`models/week04_nohead/`](../../models/week04_nohead/)) was trained on this task as it
-stands. Built over W02–W04 of the project plan (W02 skeleton and standing, W03 rewards
-and the first gait, W04 randomisation and the final interface; see the
-[top-level README](../../README.md#how-the-project-was-organised)).
+stands.
 
 | file | what's in it |
 |---|---|
-| `__init__.py` | `gym.register()` for `Isaac-Velocity-Flat-R1-v0` and its `-Play-v0` variant (fewer envs, no randomisation), both with the PPO config as `rsl_rl_cfg_entry_point` |
-| `flat_env_cfg.py` | `R1FlatEnvCfg`: scene, commands, actions, observations, randomisation events, rewards, terminations, command curriculum. Each config class's docstring says why it is the way it is |
+| `__init__.py` | `gym.register()` for `Isaac-Velocity-Flat-R1-v0` and its `-Play-v0` variant (fewer envs, no randomization), both with the PPO config as `rsl_rl_cfg_entry_point` |
+| `flat_env_cfg.py` | `R1FlatEnvCfg`: scene, commands, actions, observations, randomization events, rewards, terminations, command curriculum. Each config class's docstring says why it is the way it is |
 | `mdp.py` | R1-specific terms not in Isaac Lab: the touchdown-gated swing reward, the command-range curriculum, the action-level control delay |
 | `symmetry.py` | the left/right mirror map for PPO's symmetry augmentation |
 | `agents/rsl_rl_ppo_cfg.py` | PPO hyperparameters, seed 42, 3000 iterations, symmetry augmentation on |
@@ -23,7 +21,7 @@ and the first gait, W04 randomisation and the final interface; see the
 | **policy observation** | 85 floats per frame, proprioception only (angular velocity, gravity direction, command, joint positions and velocities, last action), the last 5 frames stacked → **425**. No base linear velocity: the robot cannot measure it |
 | **critic observation** | adds privileged simulator state (base linear velocity, external wrench, foot friction): asymmetric actor-critic |
 | **commands** | forward 0 → 1.0 m/s, yaw rate ±0.5 rad/s, reached by a curriculum over the first 1000 iterations; **sideways is pinned to 0 and there is no backward**, which is why the robot refuses both |
-| **randomisation** | friction 0.6–1.2, body mass ±10 %, actuator gains ×0.85–1.15, pushes ±0.5 m/s every 10–15 s, control delay 0–1 step |
+| **randomization** | friction 0.6–1.2, body mass ±10 %, actuator gains ×0.85–1.15, pushes ±0.5 m/s every 10–15 s, control delay 0–1 step |
 | **rewards** | velocity tracking; a swing reward paid only at touchdown for a 0.15–0.45 s swing; penalties including feet held up, foot slide, joint limits, upper-body and hip drift, falling |
 | **termination** | base below 0.51 m, tilt beyond 0.7 rad, or the 20 s episode ends |
 
@@ -31,7 +29,7 @@ and the first gait, W04 randomisation and the final interface; see the
 
 Each is fixed in the code and explained where it is fixed; listed so nobody undoes one:
 
-- **`feet_air_time_positive_biped` is maximised by standing on one leg.** It is not used.
+- **`feet_air_time_positive_biped` is maximized by standing on one leg.** It is not used.
   The swing reward is paid at touchdown instead (`mdp.py`). W03 spent three training runs
   on it; see [`experiments/README.md`](../../experiments/README.md).
 - **Any actuated joint without a reward on it becomes a balance aid.** The head ended up
@@ -45,4 +43,10 @@ Each is fixed in the code and explained where it is fixed; listed so nobody undo
   deployed policy trained at. If you raise the gains, re-check standing with
   `scripts/inspect_r1.py` before training.
 
-Longer write-ups of each are in [`scripts/README.md`](../../scripts/README.md#known-gotchas-already-worked-around-in-the-code-documented-here-so-nobody-re-discovers-them-the-hard-way).
+Longer write-ups of each are in [`scripts/README.md`](../../scripts/README.md#known-pitfalls).
+
+## History
+
+W02: the task skeleton and standing; W03: rewards and the first real gait; W04: domain
+randomization, the observation history and the final 24-action / 425-observation
+interface. Weeks are explained in [docs/project_history.md](../../docs/project_history.md).

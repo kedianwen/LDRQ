@@ -61,7 +61,7 @@ check("four steps parsed", len(steps) == 4, steps)
 check("walk seconds", steps[0]["duration_s"] == 5.0 and steps[0]["vx"] == 0.4)
 check("turn degrees + direction", steps[1]["yaw_deg"] == 90.0
       and steps[1]["direction"] == "left")
-check("walk metres", steps[2]["distance_m"] == 10.0)
+check("walk meters", steps[2]["distance_m"] == 10.0)
 check("turn by seconds is not read as degrees",
       P.parse_script("turn right 4s")[0].get("duration_s") == 4.0)
 check("comments and blank lines skipped",
@@ -296,7 +296,7 @@ check("no error bar is invented for an unmeasured speed",
       pa[0].distance_err_m is None and pa[1].distance_err_m is None)
 check("a timed walk still estimates its distance", abs(pa[1].distance_m - 1.2) < 1e-9,
       pa[1].distance_m)
-check("distance budget still counts assumed metres", abs(ma - 11.2) < 1e-9, ma)
+check("distance budget still counts assumed meters", abs(ma - 11.2) < 1e-9, ma)
 check("the plan line says the speed is assumed", "not measured" in pa[0].summary(),
       pa[0].summary())
 ea, _, _, _ = simulate(pa, lim_a)

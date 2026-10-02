@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Train Isaac-Velocity-Flat-R1-v0 with rsl_rl PPO (Week03, FR-T4 first training).
+"""Train Isaac-Velocity-Flat-R1-v0 with rsl_rl PPO (W03, FR-T4 first training).
 
 This project's own copy of IsaacLab's official
 ``scripts/reinforcement_learning/rsl_rl/train.py``. Can't use the official

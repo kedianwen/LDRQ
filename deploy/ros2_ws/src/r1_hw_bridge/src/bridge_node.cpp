@@ -118,7 +118,7 @@ public:
     auto_recover_ = declare_parameter<bool>("auto_recover", false);
     cmd_vel_timeout_ms_ = declare_parameter<double>("cmd_vel_timeout_ms", 500.0);
     // The command envelope the policy was actually TRAINED on -- the end point of
-    // Week04's command curriculum (COMMAND_RANGES_FINAL in
+    // W04's command curriculum (COMMAND_RANGES_FINAL in
     // tasks/r1_flat/flat_env_cfg.py), not a comfort limit. Outside it the policy
     // is extrapolating, and a biped extrapolating is a fall.
     //
@@ -612,7 +612,7 @@ private:
   // `drive` false => damping: zero stiffness, hold nothing, just resist motion.
   // With no R1 client in the SDK (/usr/local/include/unitree/robot has a2, b2,
   // g1, go2, h1 -- no r1) there is no vendor damping/e-stop call to delegate to,
-  // so this is the degrade behaviour, implemented here.
+  // so this is the degrade behavior, implemented here.
   void SendCommand(const RobotState & s, const std::vector<float> & target, bool drive)
   {
     // Slots left at mode 0 are the nine G1 positions R1 has no motor for

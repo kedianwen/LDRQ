@@ -1,6 +1,6 @@
 """Assemble the demo video (BG-2): title card, captioned clips, the stage A figure, end card.
 
-Every clip is normalised to 1280x720 @ 30 fps with its caption burnt in as a
+Every clip is normalized to 1280x720 @ 30 fps with its caption burnt in as a
 lower third, and its audio track is DROPPED -- robot-side screen recordings pick
 up the lab, and nothing in the demo needs sound. Cards and captions are drawn with
 matplotlib (the ffmpeg shipped with Isaac Lab's imageio has no drawtext).

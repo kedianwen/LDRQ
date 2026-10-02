@@ -24,7 +24,7 @@ TP="${DEPLOY_ROOT}/third_party"
 # It does not work here: on this box (Turing sm_75, driver 580.173) TensorRT
 # 10.3.0 builds an engine that runs at full speed and returns the WRONG
 # numbers. Reproduced from the ONNX parser and from a hand-built network, at
-# every builder optimisation level, in FP32 and FP16, from both C++ and Python
+# every builder optimization level, in FP32 and FP16, from both C++ and Python
 # -- while onnxruntime and PyTorch agree with each other. Any subgraph with two
 # ELU layers is correct; three is wrong. 10.7.0 matches PyTorch to 5e-6.
 #
@@ -136,7 +136,7 @@ done
 
 # CUDA comes from the pip wheel too, on purpose: TensorRT 10.3's x86 build
 # links libcudart.so.12, while this host's apt CUDA is 11.5. Loading two
-# cudart majors into one process is undefined behaviour, so we compile and
+# cudart majors into one process is undefined behavior, so we compile and
 # link against the same CUDA 12 the TensorRT binary already uses.
 CUDA_PIP="${SP}/nvidia/cuda_runtime"
 [[ -f "${CUDA_PIP}/include/cuda_runtime_api.h" ]] || die "pip CUDA runtime headers missing"

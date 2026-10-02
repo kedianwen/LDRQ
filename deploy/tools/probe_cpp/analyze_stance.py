@@ -55,7 +55,7 @@ def load_defaults():
     return spec["articulation"]["default_joint_pos"]
 
 
-def summarise(name, samples, indent="  "):
+def summarize(name, samples, indent="  "):
     """Mean +- sd and peak-to-peak. Pure stdlib: numpy is not guaranteed on the
     robot and this tool has to run there."""
     if not samples:
@@ -79,10 +79,10 @@ def report(jpos, cmd, names, defaults):
         li, ri = idx[left], idx[right]
         m_sep = [(a[li] + defaults[li]) - (a[ri] + defaults[ri]) for a in jpos]
         print(f"{left.replace('left_', '')}:")
-        print(summarise("measured  left-right separation", m_sep))
+        print(summarize("measured  left-right separation", m_sep))
         if cmd:
             c_sep = [a[li] - a[ri] for a in cmd]
-            print(summarise("commanded left-right separation", c_sep))
+            print(summarize("commanded left-right separation", c_sep))
             if m_sep and c_sep:
                 gap = statistics.fmean(c_sep) - statistics.fmean(m_sep)
                 print(f"    commanded minus measured: {gap:+.4f} rad")
@@ -96,7 +96,7 @@ def report(jpos, cmd, names, defaults):
         for jn in ("left_hip_roll_joint", "right_hip_roll_joint"):
             j = idx[jn]
             err = [cmd[i][j] - (jpos[i][j] + defaults[j]) for i in range(n)]
-            print(summarise(jn, err))
+            print(summarize(jn, err))
         print()
 
     if verdict:
@@ -121,7 +121,7 @@ def main():
     ap.add_argument("--topic", default="/r1_hw_bridge/joint_pos")
     ap.add_argument("--cmd-topic", default="/r1_hw_bridge/cmd_debug")
     ap.add_argument("--save", help="write raw samples here as JSON")
-    ap.add_argument("--load", help="re-analyse a --save file instead of subscribing")
+    ap.add_argument("--load", help="re-analyze a --save file instead of subscribing")
     args = ap.parse_args()
 
     names, defaults = load_names(), load_defaults()

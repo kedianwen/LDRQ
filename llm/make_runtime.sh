@@ -17,8 +17,8 @@
 # brings its own CUDA 11 runner and cuBLAS. Nothing is compiled.
 set -euo pipefail
 VER="${VER:-v0.34.4}"
-DL="${DL:-$HOME/R1process/outputs/llm/downloads}"
-STORE="${STORE:-$HOME/R1process/outputs/llm/ollama_models}"
+DL="${DL:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/outputs/llm/downloads}"
+STORE="${STORE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/outputs/llm/ollama_models}"
 MODELS="${MODELS:-qwen3:1.7b qwen3:0.6b qwen2.5:1.5b}"
 OUT="${OUT:-$HOME/r1_stageC_llm_runtime_$(date +%Y-%m-%d).tar.gz}"
 GZ="$(command -v pigz || command -v gzip)"

@@ -224,7 +224,7 @@ rm -rf -- ~/r1-robot-v1.1.0
 ```
 Nothing was installed outside this directory.
 
-## Licences
+## Licenses
 
 The code is Apache-2.0 (`LICENSE`, `NOTICE`). The Ollama runtime, the CUDA libraries it
-bundles and the Qwen3 model keep their own licences; see `THIRD_PARTY_NOTICES.md`.
+bundles and the Qwen3 model keep their own licenses; see `THIRD_PARTY_NOTICES.md`.

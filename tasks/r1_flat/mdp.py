@@ -18,7 +18,7 @@ fix this because they attacked a symptom, not that term.
 The functions here replace it with a touchdown-settled swing reward that can't
 be farmed by holding a leg up, plus a direct penalty on doing so.
 
-Week04 adds ``command_range_curriculum`` -- Isaac Lab 2.1 ships no built-in
+W04 adds ``command_range_curriculum`` -- Isaac Lab 2.1 ships no built-in
 curriculum over command ranges (``envs/mdp/curriculums.py`` only has
 ``modify_reward_weight``).
 """
@@ -91,7 +91,7 @@ def feet_air_time_excess_l1(
 class DelayedJointPositionAction(JointPositionAction):
     """Joint position action whose setpoint lags by a random number of control steps.
 
-    This is Week04's control-delay randomization (FR-T5). It is *not* the
+    This is W04's control-delay randomization (FR-T5). It is *not* the
     obvious implementation -- Isaac Lab ships ``DelayedPDActuatorCfg`` for
     exactly this -- and the reason is measured, not stylistic:
 
@@ -105,7 +105,7 @@ class DelayedJointPositionAction(JointPositionAction):
     ``d=150`` against an inertia of order 0.01 kg m^2 (armature included),
     giving a limit near 1e-4 s against the 2e-3 s this env runs at. R1's leg
     gains only ever stood up because PhysX integrates them implicitly (see the
-    Week02 diagnosis in assets/r1/r1.py), and an explicit model spends exactly
+    W02 diagnosis in assets/r1/r1.py), and an explicit model spends exactly
     that margin.
 
     Delaying the *action* instead reproduces the thing that actually needs
@@ -164,7 +164,7 @@ class body_material_friction(ManagerTermBase):
 
     A *privileged* observation for the critic only: the real R1 has no way to
     measure the ground it is standing on, but the critic may use it, and once
-    Week04's ``randomize_rigid_body_material`` event makes friction vary
+    W04's ``randomize_rigid_body_material`` event makes friction vary
     per env, an unobserved friction is otherwise pure reward noise the value
     function has to eat.
 
@@ -251,8 +251,8 @@ def command_range_curriculum(
 ) -> float:
     """Linearly widen a velocity command term's sampling ranges over training.
 
-    Week04 has to train 0-1.0 m/s (PG-1 is stated over 0.5-1.0 m/s) and turning,
-    where Week03 only ever trained straight-line 0-0.5 m/s. Opening the full
+    W04 has to train 0-1.0 m/s (PG-1 is stated over 0.5-1.0 m/s) and turning,
+    where W03 only ever trained straight-line 0-0.5 m/s. Opening the full
     range from step 0 throws away the one thing that already works; this ramps
     ``initial_ranges`` -> ``final_ranges`` between two values of
     ``env.common_step_counter``, which counts *control* steps, so with rsl_rl's

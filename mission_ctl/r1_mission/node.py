@@ -90,7 +90,7 @@ def limits_from_cfg(cfg):
     #   a number     measured ground speed at cruise_vx; distances carry +-rel_err
     #   commanded    ground speed ASSUMED equal to the command (decision
     #                2026-09-28: no venue to measure, and the task does not need
-    #                precise distance). Distances are allowed and labelled as such.
+    #                precise distance). Distances are allowed and labeled as such.
     #   unmeasured   distance commands are refused.
     # Absent means unmeasured, never commanded: a config must say the assumption
     # out loud, or "10 m" would turn into a number that looks measured.
@@ -312,7 +312,7 @@ def capability_text(env, lim):
     lines.append("Each step must last at least {:.0f} s. A plan may have at most {} steps, "
                  "{:.0f} s in total, and {:.0f} m in total."
                  .format(lim.min_primitive_s, lim.max_prims, lim.max_total_s, lim.max_total_m))
-    lines.append("Units are metres, seconds, degrees, m/s and rad/s.")
+    lines.append("Units are meters, seconds, degrees, m/s and rad/s.")
     return " ".join(lines)
 
 

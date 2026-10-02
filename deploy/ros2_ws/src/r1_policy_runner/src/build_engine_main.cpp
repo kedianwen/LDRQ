@@ -2,7 +2,7 @@
 //
 // Run this ON THE MACHINE THAT WILL EXECUTE THE POLICY. A plan file encodes the
 // TensorRT version, the GPU's compute architecture and kernel tactics selected
-// by timing real kernels on that device; it is not portable. The artefact that
+// by timing real kernels on that device; it is not portable. The artifact that
 // moves from the dev box to the robot is the ONNX, not the plan.
 //
 //   r1_build_engine --onnx policy.onnx --plan policy.plan [--fp16] [--workspace 256]
@@ -20,7 +20,7 @@
 // (1.717e-05, FP32's order) nor the latency, because the builder timed FP32
 // kernels as faster and kept them. Expect the same of INT8. Its value here is
 // as a controlled, physically real perturbation for probing robustness, not as
-// a speed-up; build it to measure behaviour, and report the latency honestly.
+// a speed-up; build it to measure behavior, and report the latency honestly.
 
 #include "r1_policy_runner/trt_policy.hpp"
 

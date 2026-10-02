@@ -1,5 +1,5 @@
 # NOT RUN in stage A: the speed test was dropped on 2026-09-28 (no venue; the
-# task needs distance only to "a few metres"), and mission_ctl assumes ground
+# task needs distance only to "a few meters"), and mission_ctl assumes ground
 # speed = command (v_cal: commanded). Kept for if a measurement is ever made.
 #
 # v_cal readings -- one run per line: vx_commanded  distance_m  seconds
@@ -9,7 +9,7 @@
 # is the ONLY source of achieved walking speed.
 #
 # FLYING START: mark line A about 2 m from where the robot starts, and line B a
-# fixed L metres beyond A (L = 5 m, or 3 m in a short room). distance_m is always
+# fixed L meters beyond A (L = 5 m, or 3 m in a short room). distance_m is always
 # L. seconds is the stopwatch time from the torso crossing A to the torso crossing
 # B. Starting the clock from standstill would fold the ramp and the first steps'
 # transient into the speed.

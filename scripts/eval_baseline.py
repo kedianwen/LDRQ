@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Measure a trained policy's velocity-tracking baseline table (Week04, PG-1).
+"""Measure a trained policy's velocity-tracking baseline table (W04, PG-1).
 
 Rolls a checkpoint out at a grid of *fixed* commanded forward speeds and
 reports, per speed:
@@ -23,9 +23,9 @@ schedule and would otherwise fight a per-step overwrite (and zero out the
 
 ``--friction`` / ``--push_vel`` turn this into a *stress* test for the
 with-DR vs without-DR comparison: they move the evaluation off the nominal
-conditions the Week03 policy was trained on.
+conditions the W03 policy was trained on.
 
-Written before any Week04 change lands, deliberately: Week03 burned three
+Written before any W04 change lands, deliberately: W03 burned three
 training rounds on gait verdicts made from tensorboard curves and sampled
 video frames, both of which turned out to be unable to distinguish a healthy
 gait from a broken one. See scripts/diagnose_gait.py for the per-foot

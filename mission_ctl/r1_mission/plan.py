@@ -66,7 +66,7 @@ def achieved_speed(vx, limits):
     nothing to convert a distance with."""
     if limits.v_cal_assumed:
         # Decided 2026-09-28: no venue to measure it, and the task only needs
-        # distances at the level of "a few metres". Taken as equal to the command,
+        # distances at the level of "a few meters". Taken as equal to the command,
         # and reported as an assumption, never with an error bar that looks measured.
         return vx
     if limits.v_cal is None:
@@ -230,7 +230,7 @@ class Limits(object):
         # over v_cal, so a config cannot be half one and half the other.
         self.v_cal_assumed = bool(v_cal_assumed)
         # Smallest |wz| the real robot actually turns at (turn_response.py). 0 = not
-        # measured: behaviour as before. The PG-2 run turned at 0.00 of a 0.15 command.
+        # measured: behavior as before. The PG-2 run turned at 0.00 of a 0.15 command.
         self.turn_min_wz = float(turn_min_wz)
         self.ramp_s = float(ramp_s)
         self.min_primitive_s = float(min_primitive_s)

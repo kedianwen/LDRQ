@@ -12,7 +12,7 @@ again, decode speed, the coexistence test and `ask` end to end, in
 
 `r1_mission_cli.py ask "<English>"` runs four stages. Only the second is a model.
 
-1. **`normalize()`, deterministic.** Number words and units become digits in metres,
+1. **`normalize()`, deterministic.** Number words and units become digits in meters,
    seconds, degrees, m/s and rad/s ("10 feet" → "3.05 m", "half a minute" → "30
    seconds", "one hundred and eighty" → "180", "a quarter turn" → "a 90 degree turn").
    A plain "turn left" becomes "turn left 90 degrees", but only when nothing in the
@@ -154,7 +154,7 @@ construction.
 ## Choice (decided 2026-09-30)
 
 - **qwen3:1.7b** is the default in `mission.yaml`, and it stays on the Orin's GPU (see
-  [Coexistence](#coexistence-plan-36)).
+  [Coexistence](#coexistence-the-policys-timing-while-the-model-runs)).
   - It scored best on the clean sets (75/80) with the fewest unsafe answers (2).
   - It is Apache-2.0 and 1.4 GB.
   - It is a standard transformer. It has none of Qwen3.5's hybrid linear attention,
@@ -245,7 +245,10 @@ whether the dev-box results carry over to the robot.
 - A two-step instruction is about 33 output tokens. The four-step stage B demo is 77:
   2.6 s on the GPU.
 
-### Coexistence (plan 3.6)
+### Coexistence: the policy's timing while the model runs
+
+"Plan 3.6" below is the stage C plan's coexistence item, which set the criteria before
+any measurement.
 
 `llm/coexist.py`, 60 s per phase, the stack at kp 1.3. Round 1 had the output off and the
 robot on a taut gantry. Round 2 had the output on and the robot standing on the gantry

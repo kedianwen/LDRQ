@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""rsl_rl PPO runner config for Isaac-Velocity-Flat-R1-v0 (Week03, FR-T4 first training).
+"""rsl_rl PPO runner config for Isaac-Velocity-Flat-R1-v0 (W03, FR-T4 first training).
 
 Asymmetric actor-critic needs no explicit switch here: rsl_rl's
 RslRlVecEnvWrapper auto-detects the env's "critic" observation group
@@ -31,12 +31,12 @@ from tasks.r1_flat.symmetry import mirror_obs_actions
 
 @configclass
 class R1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    # Week04 (FR-T6): pinned explicitly rather than inherited from rsl_rl's
+    # W04 (FR-T6): pinned explicitly rather than inherited from rsl_rl's
     # default, so the reproduction command doesn't depend on an upstream default
     # staying put.
     seed = 42
     num_steps_per_env = 24
-    # Week04 trains longer than Week03's 1500: domain randomization makes the
+    # W04 trains longer than W03's 1500: domain randomization makes the
     # curves noisier and convergence slower, which the plan budgets for
     # ("用更长训练步数换 sim2real 迁移能力").
     max_iterations = 3000
@@ -62,9 +62,9 @@ class R1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
-        # Week04 correction: R1's model is provably mirror-symmetric (all 17
-        # left/right link pairs in R1.urdf match to 0 in mass, inertia and centre
-        # of mass), yet the Week04 policy walked with markedly different air-time
+        # W04 correction: R1's model is provably mirror-symmetric (all 17
+        # left/right link pairs in R1.urdf match to 0 in mass, inertia and center
+        # of mass), yet the W04 policy walked with markedly different air-time
         # fractions per foot (0.416 vs 0.646). Nothing in the reward or the
         # training loop had ever asked for symmetry. Augmenting each minibatch
         # with its mirror image does (Mittal et al. 2024); see

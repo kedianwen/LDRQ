@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Record real observations off the running robot, for INT8 calibration.
 
-INT8 quantisation picks a scale per activation tensor, and it picks it by
+INT8 quantization picks a scale per activation tensor, and it picks it by
 watching activations while the network runs on a calibration set. So the
 calibration set decides the scales, and a set drawn from the wrong distribution
-produces an engine that is quantised for states the policy never visits.
+produces an engine that is quantized for states the policy never visits.
 
 That is why this tool exists instead of reusing `parity_fixture.bin`: the
 fixture's inputs are Gaussian noise. Noise is the right thing for a parity
@@ -16,7 +16,7 @@ activations the policy never reaches while walking).
 
   # or, better: don't run a second 50 Hz subscriber on the robot at all.
   # walk_metrics.py already records ~/obs, so convert its save instead --
-  # one walk, one recording, both artefacts, and one less process competing
+  # one walk, one recording, both artifacts, and one less process competing
   # with the control loop for CPU.
   python3 record_calib_obs.py --from-walk ~/orin_commissioning/walk_pg2.json \
       --out ~/orin_commissioning/calib_obs.bin
@@ -63,7 +63,7 @@ def coverage(samples, terms):
     """Does this recording look like walking, or like a robot standing still?
 
     A calibration set recorded while standing is the classic way to get an INT8
-    engine that is quantised perfectly for a state the robot is not in when it
+    engine that is quantized perfectly for a state the robot is not in when it
     matters. It is also invisible afterwards -- the engine builds, the parity
     numbers look fine, and the failure only appears in motion.
     """

@@ -5,7 +5,7 @@ on Ubuntu 20.04 and its apt is broken.
 
 The split this module enforces: the model TRANSCRIBES, the robot JUDGES.
 
-  1. normalize()   deterministic. Number words and units become digits and metres,
+  1. normalize()   deterministic. Number words and units become digits and meters,
                    seconds, degrees, m/s, rad/s before the model sees anything:
                    small models are bad at arithmetic, and "10 feet" should be 3.05 m
                    because a regex said so, not because a 1.5B model guessed.
@@ -597,7 +597,7 @@ def refusal_message(reason, env, lim, text, detail=None):
         return ("I cannot {}: I can only walk forward, turn on the spot and stand "
                 "still, one step after another.".format(text))
     if reason == "no_amount":
-        return ("'{}' has no amount. Tell me how far (metres), how long (seconds) or "
+        return ("'{}' has no amount. Tell me how far (meters), how long (seconds) or "
                 "how many degrees.".format(text))
     if reason == "too_fast":
         return ("'{}' needs {}; I walk at up to {:.2f} m/s and turn at up to {:.2f} "

@@ -22,8 +22,8 @@ OK, WARN, BAD = "ok  ", "warn", "FAIL"
 
 
 def row(status: str, name: str, value: str, note: str = "") -> None:
-    colour = {"ok  ": "\033[32m", "warn": "\033[33m", "FAIL": "\033[31m"}[status]
-    print(f"  {colour}[{status}]\033[0m {name:<22} {value}" + (f"   ({note})" if note else ""))
+    color = {"ok  ": "\033[32m", "warn": "\033[33m", "FAIL": "\033[31m"}[status]
+    print(f"  {color}[{status}]\033[0m {name:<22} {value}" + (f"   ({note})" if note else ""))
 
 
 def run(cmd: list[str]) -> str | None:

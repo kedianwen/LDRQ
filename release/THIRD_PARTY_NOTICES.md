@@ -1,9 +1,9 @@
 # Third-party components in the release archives
 
 The project's own code is under the Apache License 2.0 (`LICENSE`, `NOTICE`). The release
-archives also redistribute the following, each under its own licence.
+archives also redistribute the following, each under its own license.
 
-| component | where in the release | licence | licence text |
+| component | where in the release | license | license text |
 |---|---|---|---|
 | **Ollama** v0.34.4, linux-arm64 + jetpack5 builds, unmodified, from <https://github.com/ollama/ollama/releases/tag/v0.34.4> | `llm/ollama/` | MIT | `llm/ollama/LICENSE` |
 | llama.cpp and its vendored code (inside Ollama) | `llm/ollama/lib/ollama/` | MIT and others | `llm/ollama/lib/ollama/LLAMA_CPP_LICENSE`, `LLAMA_CPP_VENDORS_LICENSE` |
@@ -12,7 +12,7 @@ archives also redistribute the following, each under its own licence.
 | **Qwen3-1.7B** (Q4_K_M, as published by Ollama as `qwen3:1.7b`), by the Qwen team, Alibaba Cloud | `llm/models/` (second archive) | Apache-2.0 | the model's `license` blob in `llm/models/blobs/` (`sha256-d18a5cc7…`) |
 
 Only the Ollama files needed on a Jetson are included: the `cuda_v12` and `cuda_v13`
-directories of the release, which are for data-centre GPUs, are left out. Nothing else
+directories of the release, which are for data-center GPUs, are left out. Nothing else
 was changed.
 
 The Unitree SDK (unitree_sdk2), ROS 2 foxy, JetPack, CUDA and TensorRT are **not**

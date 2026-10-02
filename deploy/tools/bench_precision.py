@@ -294,7 +294,7 @@ def main():
               "",
               "A row where all three precisions land within noise of each other is the",
               "expected result at batch 1 and 90k parameters, and it is the evidence that",
-              "moves INT8 from 'performance optimisation' to 'controlled perturbation for",
+              "moves INT8 from 'performance optimization' to 'controlled perturbation for",
               "the robustness study' (FR-R2/PG-5). It is not a failed measurement.",
               "",
               "Engine size is not guaranteed to fall either: on the Orin, FP16 came out",

@@ -22,7 +22,7 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
 # All R1 model files live in the package next to this file: assets/r1/. R1.urdf
-# and meshes/ are tracked in git; usd/ is a *build artefact* produced by
+# and meshes/ are tracked in git; usd/ is a *build artifact* produced by
 # scripts/convert_r1_urdf.py and is git-ignored. Keeping the USD out of version
 # control means the URDF stays the single source of truth: a URDF edit cannot
 # silently disagree with a stale USD that someone converted months ago, which is
@@ -41,9 +41,9 @@ def require_usd() -> str:
     if not Path(R1_USD_PATH).exists():
         raise FileNotFoundError(
             f"R1 USD not found at {R1_USD_PATH}.\n"
-            "The USD is a build artefact generated from the tracked URDF. Run:\n"
+            "The USD is a build artifact generated from the tracked URDF. Run:\n"
             "    ~/IsaacLab/isaaclab.sh -p scripts/convert_r1_urdf.py\n"
-            "(from the R1process project root). See scripts/README.md."
+            "(from the repository root). See scripts/README.md."
         )
     return R1_USD_PATH
 
@@ -122,11 +122,11 @@ R1_CFG = ArticulationCfg(
         #     src/assets/robots/unitree_r1/r1_constants.py.
         #
         # These replaced a much stiffer, much stronger set carried over from
-        # Week02 (legs 1200/100, ankle 1200/150, all leg efforts 150 N*m). That
+        # W02 (legs 1200/100, ankle 1200/150, all leg efforts 150 N*m). That
         # was a mistake with a specific cause, worth recording because the
         # reasoning looked sound at the time:
         #
-        #   Week02's criterion was "hold the default pose under *pure joint PD*,
+        #   W02's criterion was "hold the default pose under *pure joint PD*,
         #   no controller, for >=10s", which needs the leg chain's passive
         #   stiffness to beat the inverted pendulum's m*g*h ~= 190 N*m/rad.
         #   That is the wrong criterion for an RL task: the policy re-targets
@@ -136,12 +136,12 @@ R1_CFG = ArticulationCfg(
         #
         # Everything downstream came from that one choice: stiffness 1200 made
         # PhysX's implicit drive solver diverge at 1/60s (hence sim dt=0.002),
-        # and made explicit actuators unusable entirely (Week04's
+        # and made explicit actuators unusable entirely (W04's
         # DelayedPDActuatorCfg smoke test collapsed in 1.5s). Both constraints
         # relax at these gains -- explicit-PD damping stability wants roughly
         # dt < 2J/d, which is ~0.01s here instead of ~1e-4s.
         #
-        # The measured cost of the old values: the Week04 policy spent 11.6% of
+        # The measured cost of the old values: the W04 policy spent 11.6% of
         # its time commanding ankle torques above the real R1's 50 N*m rating,
         # with p99 pinned at the 150 N*m sim ceiling -- a gait no hardware could
         # reproduce. See ~/kdw/experiment_record/Week04_执行器参数与硬件规格不符_根因与修正方案.md
