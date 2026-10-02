@@ -79,7 +79,7 @@ project. Code, commits and documents refer to work by week or stage:
 | **Stage A** (09-29) | M3 robustness | the `kp_scale` sweep, sim and real on one axis; report; reproducible repo | [docs/stageA_kp_sweep.md](docs/stageA_kp_sweep.md), [docs/technical_report.md](docs/technical_report.md) |
 | **Stage B** (09-30) | M3 command layer | `mission_ctl`: walk by time, turn by angle, abort paths, on the robot | `mission_ctl/` |
 | **Stage C** (09-30) | M3 | English instructions through a local model on the Orin | `mission_ctl/r1_mission/nl.py`, `llm/` |
-| **Stage D** | M3 | swap the policy with one command | `policy_pack/` (written and tested, not yet run on the robot) |
+| **Stage D** (10-02) | M3 | swap the policy with one command, accepted on the robot | `policy_pack/`, [docs/stageD_policy_swap.md](docs/stageD_policy_swap.md) |
 
 The plans themselves, the lab notebook and the step-by-step guides used at the robot
 are kept outside this repository. Everything a reader needs from them is restated here
@@ -113,7 +113,7 @@ shorthand. Every one that appears in this repository:
 |---|---|---|
 | **M1** | **Training** (W01–W04): a policy that walks in simulation and can be deployed as is | passed 2026-08-19 |
 | **M2** | **Deployment** (W05–W08): that policy walking on the real robot, on its own computer | met; INT8 waived |
-| **M3** | **Robustness and command layer** (stages A–D): one measured sim2real experiment, a way to command the robot, report and repository | A–C done; D waiting for the robot |
+| **M3** | **Robustness and command layer** (stages A–D): one measured sim2real experiment, a way to command the robot, report and repository | A–D done (videos at the end) |
 | PG-1 | in simulation, forward-speed tracking error ≤ 0.15 m/s anywhere in 0.5–1.0 m/s | ✅ worst 0.037 m/s, no falls |
 | PG-2 | on the real robot, 60 s of continuous walking (a weaker fallback was allowed: walking in the gantry plus a gap analysis) | ✅ ≥ 79.7 s untethered |
 | PG-3 | the inference chain runs on the robot's own Orin and matches the PyTorch reference | ✅ max difference 1.3e-5, inference ~0.5 ms of a 20 ms step |
@@ -139,7 +139,7 @@ The checklist with the evidence for each row is [docs/dod.md](docs/dod.md).
 
 ## Status
 
-**The 12-week scope and stages A–C are closed (2026-09-30).** Stage D is next. All
+**The 12-week scope and all four stages are closed (stage D on 2026-10-02).** All
 videos are recorded at the end of the project. In short: the policy walks on the real
 robot, untethered for 60 s, and recovers from pushes; the sim2real gap is measured on one
 knob; the robot follows English instructions through a model running on its own GPU.
@@ -148,14 +148,14 @@ knob; the robot follows English instructions through a model running on its own 
 |---|---|---|
 | M1 · training | W01–W04 | **passed** 2026-08-19 — speed tracking (PG-1) met with 4x margin |
 | M2 · deployment | W05–W08 | **met** — 60 s untethered walk (PG-2; video being archived), same numbers as PyTorch on the Orin to 1.3e-5 (FR-Q1), INT8 waived with evidence (FR-Q3), precisions compared at FP32/FP16 (FR-Q4) |
-| M3 · robustness + command layer | stages A–D | **A, B, C done** (videos at the end); D written and self-tested, awaiting the robot |
+| M3 · robustness + command layer | stages A–D | **A, B, C, D done** (videos at the end) |
 
 | Stage | What it delivers | State |
 |---|---|---|
 | **A** | `kp_scale` stability domain (sim curve + real points on one axis, same command sequence on both sides), evidence for the 60 s walk (PG-2), report/repo/video/DoD. The speed calibration was dropped on 2026-09-28: ground speed is taken as equal to the command | **done** except the PG-2 video: sim 0.80–2.00+ vs real **1.10–1.50** (both edges bounded: the trained 1.00 passed once and failed once on an 80 ms tilt spike; 1.60 was emergency-stopped on audible joint noise). Report, INT8 waiver, DoD in `docs/`; demo assembled except the PG-2 clip |
 | **B** | `mission_ctl/` on the robot: walk for a time, turn to an angle, walk an (open-loop) distance at the commanded speed. Demo at `kp_scale` 1.2 / 1.3, the middle of the real domain | **done** 2026-09-30 except the video. Turn response on the spot at kp 1.0/1.2/1.3: every rate 0.15–0.5 rad/s turns at ~0.8 of the command; a small yaw rate is lost *while walking*, so the robot turns on the spot only ([docs/stageB_turn_response.md](docs/stageB_turn_response.md)). At kp 1.3: 10 closed-loop turns and the demo sequence all DONE, 0 timeouts, within 1.6° by the IMU; abort paths 4/4 (Ctrl-C, `kill -9` → deadman, DEGRADED, no stack) ([docs/stageB_mission_runs.md](docs/stageB_mission_runs.md)). By decision, turn angle is the IMU reading and speed is the command |
 | **C** | LLM command layer: **English** instruction → schema-constrained JSON → deterministic checks → execution → templated report | **done** 2026-09-30 except the video. `mission_ctl ask`: the model transcribes, deterministic code judges (units normalised first; every distance, time and angle must have been said; refusals from the deployed envelope; all or nothing), the operator confirms the parsed plan, the reply is a template. Offline eval of 7 small models on three held-out sets frozen in turn: **qwen3:1.7b 75/80 clean**, 100 % valid JSON. **On the Orin** (Ollama 0.34.4 for JetPack 5): the same 77/80 as the dev box, 0.65 s p50; 11 instructions end to end, all executed or refused as asked. The model stays on the GPU by decision: it holds the policy's inference at ~5 ms, inside every control-loop limit but above plan 3.6's 2 ms target, which is the optimisation goal. **Each `ask` stands alone** ([docs/stageC_nl_eval.md](docs/stageC_nl_eval.md)) |
-| **D** | `policy_pack/` on the robot: swap a policy with one command | code written and self-tested, awaiting the robot |
+| **D** | `policy_pack/` on the robot: swap a policy with one command | **done** 2026-10-02. Regression install of the running policy: 8/8 steps, parity 1.144e-05 before and after, only the expected four files changed (`bridge.yaml` and the joint map byte-identical), same in-loop inference time (p50 ~454 µs, clocks locked); three bad bundles refused at step 1 with the deploy tree untouched; the stack walked on the new engine. The plan's "engine fingerprint reproduces" criterion was wrong — TensorRT rebuilds are not byte-identical — and parity is the gate ([docs/stageD_policy_swap.md](docs/stageD_policy_swap.md)) |
 
 ## Layout
 

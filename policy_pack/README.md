@@ -12,18 +12,15 @@ bash policy_pack/install_bundle.sh bundles/<run_id>
 bash policy_pack/install_bundle.sh bundles/<run_id> --dry-run   # only show what would change
 ```
 
-> **Status (2026-10-02):** this is stage D of the project (see the
-> [top-level README](../README.md#how-the-project-was-organised)). **Rehearsed, not yet run
-> on the robot.** The whole installer ran under Python 3.8 (the robot's) against a copy of
-> the robot's deploy tree rebuilt from every package sent to it, with only colcon and the two
-> TensorRT executables stood in for: the regression install changed exactly the expected
-> files (`joint_map.hpp`, `joints.tsv` and `bridge.yaml` byte-identical), and the three
-> negative installs stopped at step 1 with the tree unchanged. The rehearsal found two bugs,
-> both fixed: sourcing ROS's setup script under `set -u` killed the installer right after the
-> build with no message, and the build-failure message claimed nothing had been installed
-> when the bundle's files were already staged. The installer now also calls the TensorRT
-> executables by path rather than through the `ros2` CLI. Steps 6–8 (colcon, engine build,
-> parity) are stage D's acceptance on the robot.
+> **Status (2026-10-02): accepted on the robot** as stage D of the project (see the
+> [top-level README](../README.md#how-the-project-was-organised)). The policy already running
+> was installed through all eight steps: parity was unchanged at 1.144e-05, only the expected
+> files changed, and in-loop inference was unchanged with clocks locked. The three bad bundles
+> of `tests/negative_installs.sh` were refused at step 1 with the deploy tree untouched.
+> A rebuilt engine has a different file fingerprint from the old one: TensorRT picks kernels
+> by timing, so builds are not byte-identical, and parity is the gate. A dev-box rehearsal
+> beforehand (Python 3.8, a copy of the robot's tree) found and fixed two bugs that would have
+> made the installer exit silently. Details: [docs/stageD_policy_swap.md](../docs/stageD_policy_swap.md).
 
 ## What a bundle is
 
