@@ -13,8 +13,8 @@ echo "== when: $(date -Iseconds)  host: $(hostname)"
 
 echo; echo "== memory"
 free -h
-echo; echo "== disk under ~/kdw_deploy"
-df -h "$HOME/kdw_deploy" 2>/dev/null | tail -1
+echo; echo "== disk under the install directory"
+df -h "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" 2>/dev/null | tail -1
 
 echo; echo "== CPU and Jetson"
 echo "cores: $(nproc)"

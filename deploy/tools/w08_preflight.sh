@@ -4,7 +4,7 @@
 # none of them produces an error message.
 #
 #   export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1
-#   cd ~/kdw_deploy/deploy && source env.sh
+#   cd <install dir>/deploy && source env.sh      (on the lab robot: ~/kdw_deploy)
 #   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh                # before starting the stack
 #   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh --lock-clocks  # and pin the power model
 #   bash $R1_DEPLOY_ROOT/tools/w08_preflight.sh --live         # again, with it running
@@ -149,7 +149,7 @@ info "the active writer, so do not use it while running."
 head1 "1. environment"
 if [[ -z "${R1_DEPLOY_ROOT:-}" ]]; then
   fail "R1_DEPLOY_ROOT is empty -- env.sh was not sourced in THIS shell"
-  info "source ~/kdw_deploy/deploy/env.sh"
+  info "source <install dir>/deploy/env.sh   (e.g. ~/kdw_deploy/deploy/env.sh)"
   info "Every relative path downstream then silently resolves from /, and the"
   info "error you get is 'No such file or directory', which reads as a missing"
   info "build rather than a missing variable."
@@ -170,7 +170,7 @@ else
   info "\${VAR:-1}, which does NOT override an inherited value)"
   info "fix, in EVERY terminal, BEFORE sourcing env.sh:"
   info "  export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1"
-  info "  cd ~/kdw_deploy/deploy && source env.sh"
+  info "  cd $(dirname "$(dirname "$(readlink -f "$0")")") && source env.sh"
   info "Symptom if ignored: nodes do not see each other. ros2 topic list comes"
   info "back short and nothing reports a reason."
 fi
@@ -186,7 +186,7 @@ else
   info "\${VAR:-99}, which does NOT override an inherited value either"
   info "fix, in EVERY terminal, BEFORE sourcing env.sh:"
   info "  export ROS_DOMAIN_ID=99 ROS_LOCALHOST_ONLY=1"
-  info "  cd ~/kdw_deploy/deploy && source env.sh"
+  info "  cd $(dirname "$(dirname "$(readlink -f "$0")")") && source env.sh"
   info "Two terminals on different domains cannot see each other, and the"
   info "symptom is a short topic list, not an error."
 fi

@@ -34,7 +34,7 @@ machine with Python 3.8+, with no GPU, no ROS and no robot.
 | **understand the project** | read [docs/technical_report.md](docs/technical_report.md) (the whole project in one document), then [docs/system_architecture.md](docs/system_architecture.md) (how a sentence becomes motor commands) | 30 min |
 | **run something now** | the commands below | 2 min |
 | **train or evaluate in simulation** | an NVIDIA GPU with Isaac Lab 2.1 / Isaac Sim 4.5 → [*Reproducing*](#reproducing) and [*Reproducing a training run*](#reproducing-a-training-run) | 1 h to set up, 1.5 h per training run |
-| **run it on an R1** | an R1 EDU (onboard Orin NX) → [deploy/README.md](deploy/README.md), then [mission_ctl/README.md](mission_ctl/README.md) and [llm/README.md](llm/README.md); read [*Running on the robot*](#running-on-the-robot) first | a day |
+| **run it on an R1** | an R1 EDU (onboard Orin NX) → download the robot release ([Releases](https://github.com/kedianwen/LDRQ/releases): `release_v1.1.0.tar.gz` + the model archive) and follow its README ([release/README.md](release/README.md), 中文 [release/README_zh.md](release/README_zh.md)); read [*Running on the robot*](#running-on-the-robot) first | an hour |
 
 ```bash
 git clone https://github.com/kedianwen/LDRQ.git && cd LDRQ
@@ -170,6 +170,7 @@ knob; the robot follows English instructions through a model running on its own 
 | `policy_pack/` | swap the deployed policy with one command: bundle on the dev box, eight checked install steps on the robot | stage D | [policy_pack/README.md](policy_pack/README.md) |
 | `mission_ctl/` | the command layer: time / angle / speed plans over the bridge's topics, IMU-closed turns, `ask` for English, and its offline eval | stages B–C | [mission_ctl/README.md](mission_ctl/README.md) |
 | `llm/` | the model server on the robot: Ollama for JetPack 5, health checks, the control-loop coexistence test | stage C | [llm/README.md](llm/README.md) |
+| `release/` | the robot-side release: install and usage READMEs (English, 中文), the robot self-test, and `make_release.sh`, which builds the release assets from the committed tree | v1.1.0 | [release/README.md](release/README.md) |
 | `docs/` | results: the technical report, per-stage write-ups, figures, robot evidence | all | [docs/README.md](docs/README.md) |
 
 The W07 snapshot of the robot's deploy tree (Orin-built binaries and engines, extracted

@@ -41,3 +41,6 @@ outputs/
 *.key
 id_rsa*
 id_ed25519*
+
+# Release build output (release/make_release.sh); published as GitHub release assets
+dist/
