@@ -11,7 +11,7 @@ warn() { printf '  warn  %s\n' "$*"; }
 run()  { local name="$1"; shift; local out; out="$("$@" 2>&1)" && ok "$name: $(tail -1 <<<"$out")" \
          || { bad "$name"; tail -8 <<<"$out" | sed 's/^/        | /'; }; }
 
-echo "r1-robot $(cat VERSION 2>/dev/null) in $PWD"
+echo "$(head -1 VERSION 2>/dev/null) ($(sed -n 2p VERSION 2>/dev/null | cut -c1-16)) in $PWD"
 echo "-- files"
 run "release files match FILES.sha256" bash -c 'sha256sum --quiet -c FILES.sha256 && echo "$(wc -l < FILES.sha256) files"'
 if [[ -f llm/models/MODEL.sha256 ]]; then
