@@ -12,11 +12,18 @@ bash policy_pack/install_bundle.sh bundles/<run_id>
 bash policy_pack/install_bundle.sh bundles/<run_id> --dry-run   # only show what would change
 ```
 
-> **Status (2026-09-27):** this is stage D of the project (see the
-> [top-level README](../README.md#how-the-project-was-organised)). Tested on the dev box
-> (all pass; generated configs byte-identical to the repository's). **Not yet run on the robot** — steps 5–8 of `install_bundle.sh`
-> (colcon, engine build, parity) only run there, and are stage D's acceptance. The robot
-> runs Python 3.8; these scripts have only been executed on 3.10.
+> **Status (2026-10-02):** this is stage D of the project (see the
+> [top-level README](../README.md#how-the-project-was-organised)). **Rehearsed, not yet run
+> on the robot.** The whole installer ran under Python 3.8 (the robot's) against a copy of
+> the robot's deploy tree rebuilt from every package sent to it, with only colcon and the two
+> TensorRT executables stood in for: the regression install changed exactly the expected
+> files (`joint_map.hpp`, `joints.tsv` and `bridge.yaml` byte-identical), and the three
+> negative installs stopped at step 1 with the tree unchanged. The rehearsal found two bugs,
+> both fixed: sourcing ROS's setup script under `set -u` killed the installer right after the
+> build with no message, and the build-failure message claimed nothing had been installed
+> when the bundle's files were already staged. The installer now also calls the TensorRT
+> executables by path rather than through the `ros2` CLI. Steps 6–8 (colcon, engine build,
+> parity) are stage D's acceptance on the robot.
 
 ## What a bundle is
 
@@ -87,6 +94,18 @@ wrong reason points people the wrong way.
 | a json edited without recomputing the manifest | **the accident most likely to actually happen** |
 | an extra file in the bundle that is not in the manifest | this is how a hand-edited yaml gets installed |
 | the onnx replaced without updating provenance | the engine is no longer the policy on record |
+
+## Tests
+
+```bash
+bash tests/run_tests.sh [<bundle>]            # what verify_bundle.py refuses (any machine)
+bash tests/negative_installs.sh <good_bundle>  # three bad bundles through the REAL installer:
+                                               # each must stop at step 1, name the reason and
+                                               # leave $R1_DEPLOY_ROOT byte-for-byte unchanged
+```
+
+Both run in `../run_tests.sh` and CI; `negative_installs.sh` there works on a temporary copy
+of `deploy/`. On the robot it is part of stage D's acceptance.
 
 ## Limits (what this version cannot do)
 

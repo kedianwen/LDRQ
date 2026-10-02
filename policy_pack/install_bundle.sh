@@ -48,6 +48,10 @@ IFACE="$R1_DEPLOY_ROOT/interface"
 PROBE="$R1_DEPLOY_ROOT/tools/probe_cpp"
 HDR="$WS/src/r1_hw_bridge/include/r1_hw_bridge/joint_map.hpp"
 PLAN="$ART/policy_fp32.plan"
+# The two executables are run by path, not through `ros2 run`: the ros2 CLI is
+# the part of the robot's ROS that has crashed on its network (bad_alloc), and
+# nothing here needs ROS discovery.
+BIN="$WS/install/r1_policy_runner/lib/r1_policy_runner"
 
 echo "bundle : $BUNDLE"
 echo "deploy : $R1_DEPLOY_ROOT"
@@ -103,9 +107,21 @@ python3 "$HERE/gen_configs.py" "$BUNDLE" --deploy "$R1_DEPLOY_ROOT" \
 say "colcon build (r1_hw_bridge, r1_policy_runner)"
 ( cd "$WS" && colcon build --packages-select r1_hw_bridge r1_policy_runner ) \
   || die "colcon build failed -- the generated header did not compile, which is
-       exactly what constexpr arrays are for. Nothing was installed."
+       exactly what constexpr arrays are for. The bundle's files are already
+       staged (steps 3-5) but the previously built binaries are untouched, so the
+       robot still runs the old policy only if those files are restored: put back
+       the backup of deploy/ taken before this install, or fix the bundle and
+       re-run."
+# ROS's setup scripts read unset variables (AMENT_TRACE_SETUP_FILES, COLCON_TRACE),
+# which under `set -u` kills this script on the spot -- after the build, with no
+# message. Relax nounset only for the source.
+set +u
 # shellcheck disable=SC1091
-source "$WS/install/setup.bash" || die "cannot source the freshly built overlay"
+source "$WS/install/setup.bash"; rc=$?
+set -u
+[[ $rc -eq 0 ]] || die "cannot source the freshly built overlay"
+[[ -x "$BIN/r1_build_engine" && -x "$BIN/r1_parity_check" ]] \
+  || die "the build did not produce $BIN/r1_build_engine and r1_parity_check"
 
 # ------------------------------------------------------------- 6. build engine
 say "build the TensorRT engine on THIS machine"
@@ -113,22 +129,22 @@ if [[ "$NEW_ONNX_SHA" == "$OLD_ONNX_SHA" && -f "$PLAN" && $FORCE_ENGINE -eq 0 ]]
   echo "the ONNX is byte-identical to the installed one and $PLAN exists."
   echo "reusing it. Pass --force-engine to rebuild anyway."
 else
-  ros2 run r1_policy_runner r1_build_engine \
+  "$BIN/r1_build_engine" \
     --onnx "$ART/policy.onnx" --plan "$PLAN" \
     || die "engine build failed"
 fi
 
 # -------------------------------------------------------------- 7. parity gate
 say "parity check: this engine against the bundle's own fixture"
-ros2 run r1_policy_runner r1_parity_check \
+"$BIN/r1_parity_check" \
   --plan "$PLAN" --fixture "$ART/parity_fixture.bin" --tol 1e-3 \
   || die "PARITY FAILED. The engine on this machine does not reproduce the
        exported policy. Do NOT run it. Check that TF32 was cleared and that the
        fixture belongs to this ONNX."
 
 # ------------------------------------------------------------------ 8. record
-say "record what is installed"
-FP="$(ros2 run r1_policy_runner r1_parity_check --plan "$PLAN" \
+echo "parity passed; recording what is installed"
+FP="$("$BIN/r1_parity_check" --plan "$PLAN" \
         --fixture "$ART/parity_fixture.bin" 2>/dev/null \
         | grep -o 'fnv1a=0x[0-9a-f]*' | head -1)"
 python3 - "$ART/installed.json" "$BUNDLE" "$PLAN" "${FP:-unknown}" <<'PY'

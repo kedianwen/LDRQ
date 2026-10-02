@@ -30,6 +30,12 @@ run "mission_ctl English (ask)"   "$PY" mission_ctl/tests/test_nl.py
 run "eval sets vs shipped config" "$PY" mission_ctl/eval/run_nl_eval.py --check --set all
 run "llm coexist selftest"        "$PY" llm/coexist.py --selftest
 run "policy_pack refusals"        env PATH="$(dirname "$(command -v "$PY")"):$PATH" bash policy_pack/tests/run_tests.sh
+run "policy_pack negative installs" bash -c '
+  set -e; t="$(mktemp -d)"; trap "rm -rf \"\$t\"" EXIT
+  tar -C . --exclude=deploy/.venv --exclude=deploy/third_party --exclude="deploy/ros2_ws/build" \
+      --exclude="deploy/ros2_ws/install" --exclude="deploy/ros2_ws/log" -cf - deploy | tar -C "$t" -xf -
+  python3 policy_pack/make_bundle.py --deploy "$t/deploy" --out "$t/b" >/dev/null
+  R1_DEPLOY_ROOT="$t/deploy" bash policy_pack/tests/negative_installs.sh "$(ls -d "$t"/b/*)"'
 run "deployed policy SHA256"      bash -c 'cd models/week04_nohead && sha256sum --quiet -c SHA256SUMS && echo "$(wc -l < SHA256SUMS) files match SHA256SUMS"'
 run "Markdown links"              "$PY" scripts/check_doc_links.py
 run "mission dry run"             bash -c '"$0" mission_ctl/r1_mission_cli.py run "walk 3s@0.3; turn left 90" --dry-run | grep -o "\"final_state\": \"DONE\""' "$PY"
