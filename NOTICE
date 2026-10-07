@@ -2,7 +2,7 @@ LDRQ
 Copyright 2026 the LDRQ authors
 
 Licensed under the Apache License, Version 2.0 (see LICENSE), except for the
-third-party material listed below, which keeps its own licence.
+third-party material listed below, which keeps its own license.
 
 1. assets/r1/R1.urdf and assets/r1/meshes/
    The Unitree R1 robot description, copied unmodified from Unitree Robotics'
