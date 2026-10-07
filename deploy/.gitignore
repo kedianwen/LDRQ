@@ -9,7 +9,7 @@ ros2_ws/install/
 ros2_ws/log/
 
 # Engines are NOT portable: a .plan is valid only for the TensorRT version,
-# GPU architecture and driver that built it. The ONNX is the artefact that
+# GPU architecture and driver that built it. The ONNX is the artifact that
 # travels; the engine is rebuilt on each target. Same reasoning as the
 # top-level .gitignore's exclusion of logs/.
 artifacts/*.plan

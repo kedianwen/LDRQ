@@ -10,8 +10,8 @@
 - 加一层英文指令接口，由机器人本机运行的小语言模型解析指令。
 
 <p align="center">
-  <img src="docs/media/walk_push_recovery.gif" width="240" alt="R1 在松弛吊装下行走并从推搡中恢复">
-  <br><em>真机：松弛吊装下行走、被推后恢复（截取 8 秒）</em>
+  <a href="docs/media/ldrq_pitch.mp4"><img src="docs/media/cover.jpg" width="720" alt="LDRQ 封面：宇树 R1 真机与 Isaac Lab 仿真"></a>
+  <br><em>点击观看 3 分钟介绍视频（<a href="docs/media/ldrq_pitch.mp4">docs/media/ldrq_pitch.mp4</a>）：训练、部署、sim2real 测量，以及真机上的英文指令</em>
 </p>
 
 ## 结果一览

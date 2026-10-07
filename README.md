@@ -11,9 +11,9 @@ robot's own Jetson Orin NX, measured against the simulator, and commanded in Eng
 through a small language model running on the robot.
 
 <p align="center">
-  <img src="docs/media/walk_push_recovery.gif" width="240" alt="The R1 walking in place under a slack gantry and recovering from pushes">
-  <br><em>On the real robot: walking and recovering from pushes, under a slack gantry
-  (8 s excerpt; the full clip is <a href="docs/w07_walk_push_recovery.mp4">docs/w07_walk_push_recovery.mp4</a>).</em>
+  <a href="docs/media/ldrq_pitch.mp4"><img src="docs/media/cover.jpg" width="720" alt="LDRQ: LLM-Driven Robotic Query-to-action. The Unitree R1 walking on the real robot, beside its simulation in Isaac Lab"></a>
+  <br><em>Click for the 3-minute video (<a href="docs/media/ldrq_pitch.mp4">docs/media/ldrq_pitch.mp4</a>): training, deployment,
+  the sim2real measurement, and English commands on the real robot.</em>
 </p>
 
 ## Results at a glance

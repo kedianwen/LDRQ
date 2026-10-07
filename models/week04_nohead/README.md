@@ -8,7 +8,7 @@ tracked: checkpoints and tensorboard events for all runs are several GB).
 |---|---|---|
 | `model_2999.pt` | rsl_rl checkpoint, final iteration (actor + critic + optimiser) | `scripts/eval_baseline.py`, `scripts/diagnose_gait.py`, `scripts/play_r1.py` (`--checkpoint`) |
 | `policy.pt` | TorchScript actor exported from that checkpoint: 425-dim observation → 24-dim action | `scripts/sweep_gain_robustness.py`, `deploy/tools/make_fixture.py` |
-| `policy.onnx` | the same actor as ONNX — **the artefact that ships to the robot** | `deploy/` (`r1_build_engine`), `policy_pack/make_bundle.py` |
+| `policy.onnx` | the same actor as ONNX — **the artifact that ships to the robot** | `deploy/` (`r1_build_engine`), `policy_pack/make_bundle.py` |
 | `parity_fixture.bin` | 512 observation vectors and this policy's reference outputs | `r1_parity_check` on the robot (passed at 1.335e-05), and the sim sweep's start-up check |
 
 `SHA256SUMS` lists all four. `policy.onnx` and `policy.pt` are byte-identical to

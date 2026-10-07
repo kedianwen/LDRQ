@@ -32,6 +32,7 @@ outputs/
 *.mov
 *.avi
 !docs/w07_walk_push_recovery.mp4
+!docs/media/ldrq_pitch.mp4
 # TensorRT engines are not portable (see deploy/.gitignore)
 *.plan
 *.engine
